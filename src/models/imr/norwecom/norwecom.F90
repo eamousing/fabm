@@ -34,6 +34,7 @@ module imr_norwecom
         real(rk) :: SIB !! Concentration of SIL when max sinking speed of DIA (mmol Si m-3)
         real(rk) :: P_N_RATIO !! Phosphorus to nitrogen ratio (mmol P (mmol N)-1)
         real(rk) :: SI_N_RATIO !! Silicon to nitrogen ratio (mmol Si (mmol N)-1)
+        real(rk) :: C_N_RATIO !! Carbon to nitrogen ratio (mmol C (mmol N)-1)
 
         ! Register state variable identifiers
         type(type_state_variable_id) :: id_nit !! Nitrate (mmol N m-3)
@@ -45,6 +46,14 @@ module imr_norwecom
         type(type_state_variable_id) :: id_oxy !! Oxygen (mg l-1)
         type(type_state_variable_id) :: id_fla !! Flagellates (mmol N m-3)
         type(type_state_variable_id) :: id_dia !! Diatoms (mmol N m-3)
+
+        ! Register diagnostic variable identifiers
+        type(type_diagnostic_variable_id) :: id_dia_gpp !! Diatom gross primary production (gC m-3 s-1)
+        type(type_diagnostic_variable_id) :: id_dia_npp !! Diatom net primary production (gC m-3 s-1)
+        type(type_diagnostic_variable_id) :: id_fla_gpp !! Flagellate gross primary production (gC m-3 s-1)
+        type(type_diagnostic_variable_id) :: id_fla_npp !! Flagellate net primary production (gC m-3 s-1)
+        type(type_diagnostic_variable_id) :: id_gpp !! Total gross primary production (gC m-3 s-1)
+        type(type_diagnostic_variable_id) :: id_npp !! Total net primary production (gC m-3 s-1)
 
         ! Register dependencies identifiers
         type(type_dependency_id) :: id_par !! Photoactive radiation (m2 (W s)-1)
@@ -91,6 +100,7 @@ contains
         call self%get_parameter(self%SIB, "SIB", "mmol Si m-3", "Concentration of SIL when max sinking speed of DIA", default=1.0_rk)
         call self%get_parameter(self%P_N_RATIO, "P_N_RATIO", "mmol P (mmol N)-1", "Phosphorus to nitrogen ratio", default=0.0625_rk)
         call self%get_parameter(self%SI_N_RATIO, "SI_N_RATIO", "mmol Si (mmol N)-1", "Silicon to nitrogen ratio", default=0.875_rk)
+        call self%get_parameter(self%C_N_RATIO, "C_N_RATIO", "mmol C (mmol N)-1", "Carbon to nitrogen ratio", default=6.625_rk)
         
         ! Initialize state variables
         call self%register_state_variable(self%id_nit, "NIT", "mmol N m-3", "Nitrate", minimum=0.0_rk, initial_value=10.0_rk)
@@ -102,6 +112,14 @@ contains
         call self%register_state_variable(self%id_oxy, "OXY", "ml l-1", "Oxygen", minimum=0.0_rk, initial_value=8.0_rk)
         call self%register_state_variable(self%id_fla, "FLA", "mmol N m-3", "Flagellates", minimum=0.01_rk, initial_value=0.1_rk)
         call self%register_state_variable(self%id_dia, "DIA", "mmol N m-3", "Diatoms", minimum=0.01_rk, initial_value=0.1_rk)
+
+        ! Initialze diagnostic variables
+        call self%register_diagnostic_variable(self%id_gpp, "GPP", "gC m-3 s-1", "Gross primary production rate", output=output_time_step_averaged)
+        call self%register_diagnostic_variable(self%id_npp, "NPP", "gC m-3 s-1", "Net primary production rate", output=output_time_step_averaged)
+        call self%register_diagnostic_variable(self%id_dia_gpp, "DIA_GPP", "gC m-3 s-1", "Diatom gross primary production rate", output=output_time_step_averaged)
+        call self%register_diagnostic_variable(self%id_dia_npp, "DIA_NPP", "gC m-3 s-1", "Diatom net primary production rate", output=output_time_step_averaged)
+        call self%register_diagnostic_variable(self%id_fla_gpp, "FLA_GPP", "gC m-3 s-1", "Flagellate gross primary production rate", output=output_time_step_averaged)
+        call self%register_diagnostic_variable(self%id_fla_npp, "FLA_NPP", "gC m-3 s-1", "Flagellate net primary production rate", output=output_time_step_averaged)
 
         ! Initialize model dependencies
         call self%register_dependency(self%id_par, standard_variables%downwelling_photosynthetic_radiative_flux)
@@ -151,6 +169,7 @@ contains
         real(rk) :: temp, par
         real(rk) :: nit, pho, sil, sis, det, detp
         real(rk) :: dia, fla
+        real(rk) :: gpp, npp, gpp_dia, npp_dia, gpp_fla, npp_fla
 
         ! Temporary arrays
         real(rk) :: pmax, nit_lim, pho_lim, sil_lim, rad_lim, growth_lim
@@ -198,6 +217,14 @@ contains
             mort_fla = self%CC3 * fla
             resp_fla = self%AA5 * fla * exp(self%AA6 * temp)
 
+            ! Gross and net primary production
+            gpp_dia = growth_dia*self%C_N_RATIO*12.01_rk*1.0e-3_rk
+            npp_dia = (growth_dia - resp_dia)*self%C_N_RATIO*12.01_rk*1.0e-3_rk
+            gpp_fla = growth_fla*self%C_N_RATIO*12.01_rk*1.0e-3_rk
+            npp_fla = (growth_fla - resp_fla)*self%C_N_RATIO*12.01_rk*1.0e-3_rk
+            gpp = gpp_dia + gpp_fla
+            npp = npp_dia + npp_fla
+
             ! Sinks and sources terms
 
             ! Nitrogen flows
@@ -242,6 +269,14 @@ contains
             _SET_ODE_(self%id_detp, ddetp)
             _SET_ODE_(self%id_dia, ddia)
             _SET_ODE_(self%id_fla, dfla)
+
+            ! Update diagnostic variables
+            _SET_DIAGNOSTIC_(self%id_dia_gpp, gpp_dia)
+            _SET_DIAGNOSTIC_(self%id_dia_npp, npp_dia)
+            _SET_DIAGNOSTIC_(self%id_fla_gpp, gpp_fla)
+            _SET_DIAGNOSTIC_(self%id_fla_npp, npp_fla)
+            _SET_DIAGNOSTIC_(self%id_gpp, gpp)
+            _SET_DIAGNOSTIC_(self%id_npp, npp)
         
         _LOOP_END_
 
