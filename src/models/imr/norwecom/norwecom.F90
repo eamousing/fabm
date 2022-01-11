@@ -35,24 +35,27 @@ module imr_norwecom
         real(rk) :: P_N_RATIO !! Phosphorus to nitrogen ratio (mmol P (mmol N)-1)
         real(rk) :: SI_N_RATIO !! Silicon to nitrogen ratio (mmol Si (mmol N)-1)
 
-        ! Register variable identifiers
-        type(type_state_variable_id) :: id_nit !! Nitrate
-        type(type_state_variable_id) :: id_pho !! Phosphate
-        type(type_state_variable_id) :: id_sil !! Silicate
-        type(type_state_variable_id) :: id_sis !! Biogenic silica
-        type(type_state_variable_id) :: id_det !! Nitrogen detritus
-        type(type_state_variable_id) :: id_detp !! Phosphorus detritus
-        type(type_state_variable_id) :: id_oxy !! Oxygen
-        type(type_state_variable_id) :: id_fla !! Flagellates
-        type(type_state_variable_id) :: id_dia !! Diatoms
+        ! Register state variable identifiers
+        type(type_state_variable_id) :: id_nit !! Nitrate (mmol N m-3)
+        type(type_state_variable_id) :: id_pho !! Phosphate (mmol P m-3)
+        type(type_state_variable_id) :: id_sil !! Silicate (mmol Si m-3)
+        type(type_state_variable_id) :: id_sis !! Biogenic silica (mmol Si m-3)
+        type(type_state_variable_id) :: id_det !! Nitrogen detritus (mmol N m-3)
+        type(type_state_variable_id) :: id_detp !! Phosphorus detritus (mmol P m-3)
+        type(type_state_variable_id) :: id_oxy !! Oxygen (mg l-1)
+        type(type_state_variable_id) :: id_fla !! Flagellates (mmol N m-3)
+        type(type_state_variable_id) :: id_dia !! Diatoms (mmol N m-3)
 
         ! Register dependencies identifiers
-        type(type_dependency_id) :: id_par !! Photoactive radiation
-        type(type_dependency_id) :: id_temp !! Temperature
+        type(type_dependency_id) :: id_par !! Photoactive radiation (m2 (W s)-1)
+        type(type_dependency_id) :: id_temp !! Temperature (degC)
+        type(type_dependency_id) :: id_sal !! Salinity
+        type(type_dependency_id) :: id_dens !! Density (kg m-3)
 
     contains
 
         procedure :: initialize
+        procedure :: do_surface
         procedure :: do_pelagic
         procedure :: get_vertical_movement
     end type
@@ -103,7 +106,42 @@ contains
         ! Initialize model dependencies
         call self%register_dependency(self%id_par, standard_variables%downwelling_photosynthetic_radiative_flux)
         call self%register_dependency(self%id_temp, standard_variables%temperature)
+        call self%register_dependency(self%id_sal, standard_variables%practical_salinity)
+        call self%register_dependency(self%id_dens, standard_variables%density)
     end subroutine initialize
+
+    subroutine do_surface(self, _ARGUMENTS_DO_SURFACE_)
+        class(type_imr_norwecom), intent(in) :: self
+        _DECLARE_ARGUMENTS_DO_SURFACE_
+
+        real(rk) :: temp, sal, oxy, dens
+        real(rk) :: ts, o2_sat, o2_flux
+
+        _SURFACE_LOOP_BEGIN_
+
+            _GET_(self%id_temp, temp)
+            _GET_(self%id_sal, sal)
+            _GET_(self%id_oxy, oxy)
+            _GET_(self%id_dens, dens)
+
+            ! Oxygen
+            
+            ! Calculate oxygen concentration (umol kg-1) following Kester et al., 1975
+            ts = temp + 273.15_rk
+            o2_sat = exp(-173.9894_rk + 255.5907_rk*100.0_rk/ts + 146.4813*log(ts/100.0_rk) - 22.2040_rk*ts/100.0_rk &
+                + sal*(-0.037376_rk + 0.016504_rk*ts/100.0_rk - 0.0020564_rk*ts*ts/10000.0_rk))
+            ! Convert to g/ml
+            o2_sat = o2_sat * dens * 32.0_rk * 1.0e-3_rk
+
+            ! Calculate oxygen flux
+            o2_flux = 5.0_rk / 86400.0_rk * (o2_sat - oxy)
+
+            ! Update state variables
+            _SET_SURFACE_EXCHANGE_(self%id_oxy, o2_flux)
+
+        _SURFACE_LOOP_END_
+
+    end subroutine do_surface
 
     subroutine do_pelagic(self, _ARGUMENTS_DO_)
         class(type_imr_norwecom), intent(in) :: self
