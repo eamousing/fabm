@@ -45,7 +45,7 @@ module imr_norwecom
         type(type_state_variable_id) :: id_sis !! Biogenic silica (mmol Si m-3)
         type(type_state_variable_id) :: id_det !! Nitrogen detritus (mmol N m-3)
         type(type_state_variable_id) :: id_detp !! Phosphorus detritus (mmol P m-3)
-        type(type_state_variable_id) :: id_oxy !! Oxygen (mg O2 l-1)
+        type(type_state_variable_id) :: id_oxy !! Oxygen (mg O l-1)
         type(type_state_variable_id) :: id_fla !! Flagellates (mmol N m-3)
         type(type_state_variable_id) :: id_dia !! Diatoms (mmol N m-3)
 
@@ -67,7 +67,7 @@ module imr_norwecom
 
         procedure :: initialize
         procedure :: do_surface
-        procedure :: do_pelagic
+        procedure :: do
         procedure :: get_vertical_movement
     end type
 
@@ -78,15 +78,15 @@ contains
         integer, intent(in) :: configunit
 
         ! Initialize model parameters
-        call self%get_parameter(self%AA1, "AA1", "s-1", "Diatom production maximum at 0 degC", default=1.505e-5_rk)
-        call self%get_parameter(self%AA2, "AA2", "degC-1", "Diatom temperature dependent pmax", default=0.063_rk)
-        call self%get_parameter(self%AA3, "AA3", "s-1", "Flagellate production maximum at 0 degC", default=1.042e-5_rk)
-        call self%get_parameter(self%AA4, "AA4", "degC-1", "Flagellate temperature dependent pmax", default=0.063_rk)
-        call self%get_parameter(self%AA5, "AA5", "s-1", "Phytoplankton respiration rate at 0 degC", default=8.102e-8_rk)
-        call self%get_parameter(self%AA6, "AA6", "degC-1", "Phytoplankton respiration rate temperature dependence", default=0.07_rk)
-        call self%get_parameter(self%CC3, "CC3", "s-1", "Phytoplankton death rate", default=1.620e-6_rk)
-        call self%get_parameter(self%CC4, "CC4", "s-1", "Detritus decomposition rate", default=1.620e-6_rk)
-        call self%get_parameter(self%SCC4, "SCC4", "s-1", "Biogenic silica decomposition rate", default=1.505e-8_rk)
+        call self%get_parameter(self%AA1, "AA1", "s-1", "Diatom production maximum at 0 degC", default=1.53e-5_rk) ! Checked
+        call self%get_parameter(self%AA2, "AA2", "degC-1", "Diatom temperature dependent pmax", default=0.063_rk) ! Checked
+        call self%get_parameter(self%AA3, "AA3", "s-1", "Flagellate production maximum at 0 degC", default=1.02e-5_rk) ! Checked
+        call self%get_parameter(self%AA4, "AA4", "degC-1", "Flagellate temperature dependent pmax", default=0.063_rk) ! Checked
+        call self%get_parameter(self%AA5, "AA5", "s-1", "Phytoplankton respiration rate at 0 degC", default=8.05e-8_rk) ! Checked
+        call self%get_parameter(self%AA6, "AA6", "degC-1", "Phytoplankton respiration rate temperature dependence", default=0.07_rk) ! Checked
+        call self%get_parameter(self%CC3, "CC3", "s-1", "Phytoplankton death rate", default=1.6e-6_rk) ! Checked
+        call self%get_parameter(self%CC4, "CC4", "s-1", "Detritus decomposition rate", default=1.52e-7_rk) ! Checked
+        call self%get_parameter(self%SCC4, "SCC4", "s-1", "Biogenic silica decomposition rate", default=6.43e-8_rk) ! Checked
         call self%get_parameter(self%KN_DIA, "KN_DIA", "(mmol N)-1 s-1", "Diatom affinity for nitrate", default=1.736e-5_rk)
         call self%get_parameter(self%KN_FLA, "KN_FLA", "(mmol N)-1 s-1", "Flagellate affinity for nitrate", default=1.505e-5_rk)
         call self%get_parameter(self%KP_DIA, "KP_DIA", "(mmol P)-1 s-1", "Diatom affinity for phosphate", default=2.697e-4_rk)
@@ -94,12 +94,12 @@ contains
         call self%get_parameter(self%KR_DIA, "KR_DIA", "m2 (W s)-1", "Diatom affinity for radition", default=1.5e-6_rk)
         call self%get_parameter(self%KR_FLA, "KR_FLA", "m2 (W s)-1", "Flagellate affinity for radition", default=4.6e-7_rk)
         call self%get_parameter(self%KS_DIA, "KS_DIA", "(mmol Si)-1 s-1", "Diatom affinity for silicate", default=2.546e-5_rk)
-        call self%get_parameter(self%SR_DET, "SR_DET", "m s-1", "Detritus sinking rate", default=-3.472e-5_rk)
-        call self%get_parameter(self%SR_DIAMAX, "SR_DIAMAX", "m s-1", "Diatom maximum sinking rate", default=-3.472e-5_rk)
-        call self%get_parameter(self%SR_DIAMIN, "SR_DIAMIN", "m s-1", "Diatom minimum sinking rate", default=-3.472e-6_rk)
-        call self%get_parameter(self%SR_FLA, "SR_FLA", "m s-1", "Flagellate sinking rate", default=-2.894e-6_rk)
-        call self%get_parameter(self%SR_SIS, "SR_SIS", "m s-1", "Biogenic silica sinking rate", default=-3.472e-5_rk)
-        call self%get_parameter(self%SIB, "SIB", "mmol Si m-3", "Concentration of SIL when max sinking speed of DIA", default=1.0_rk)
+        call self%get_parameter(self%SR_DET, "SR_DET", "m s-1", "Detritus sinking rate", default=-3.472e-5_rk) ! Checked
+        call self%get_parameter(self%SR_DIAMAX, "SR_DIAMAX", "m s-1", "Diatom maximum sinking rate", default=-3.472e-5_rk) ! Checked
+        call self%get_parameter(self%SR_DIAMIN, "SR_DIAMIN", "m s-1", "Diatom minimum sinking rate", default=-3.472e-6_rk) ! Checked
+        call self%get_parameter(self%SR_FLA, "SR_FLA", "m s-1", "Flagellate sinking rate", default=-2.894e-6_rk) ! Checked
+        call self%get_parameter(self%SR_SIS, "SR_SIS", "m s-1", "Biogenic silica sinking rate", default=-3.472e-5_rk) !Checked
+        call self%get_parameter(self%SIB, "SIB", "mmol Si m-3", "Concentration of SIL when max sinking speed of DIA", default=1.0_rk) ! Checked
         call self%get_parameter(self%P_N_RATIO, "P_N_RATIO", "mmol P (mmol N)-1", "Phosphorus to nitrogen ratio", default=0.0625_rk)
         call self%get_parameter(self%SI_N_RATIO, "SI_N_RATIO", "mmol Si (mmol N)-1", "Silicon to nitrogen ratio", default=0.875_rk)
         call self%get_parameter(self%C_N_RATIO, "C_N_RATIO", "mmol C (mmol N)-1", "Carbon to nitrogen ratio", default=6.625_rk)
@@ -114,8 +114,8 @@ contains
         call self%register_state_variable(self%id_det, "DET", "mmol N m-3", "Nitrogen detritus", minimum=0.0_rk, initial_value=0.1_rk)
         call self%register_state_variable(self%id_detp, "DETP", "mmol P m-3", "Phosphorus detritus", minimum=0.0_rk, initial_value=0.1_rk)
         call self%register_state_variable(self%id_oxy, "OXY", "ml l-1", "Oxygen", minimum=0.0_rk, initial_value=8.0_rk)
-        call self%register_state_variable(self%id_fla, "FLA", "mmol N m-3", "Flagellates", minimum=0.01_rk, initial_value=0.1_rk)
-        call self%register_state_variable(self%id_dia, "DIA", "mmol N m-3", "Diatoms", minimum=0.01_rk, initial_value=0.1_rk)
+        call self%register_state_variable(self%id_fla, "FLA", "mmol N m-3", "Flagellates", minimum=0.0001_rk, initial_value=0.1_rk)
+        call self%register_state_variable(self%id_dia, "DIA", "mmol N m-3", "Diatoms", minimum=0.0001_rk, initial_value=0.1_rk)
 
         ! Initialze diagnostic variables
         call self%register_diagnostic_variable(self%id_gpp, "GPP", "gC m-3 s-1", "Gross primary production rate", output=output_time_step_averaged)
@@ -165,7 +165,7 @@ contains
 
     end subroutine do_surface
 
-    subroutine do_pelagic(self, _ARGUMENTS_DO_)
+    subroutine do(self, _ARGUMENTS_DO_)
         class(type_imr_norwecom), intent(in) :: self
         _DECLARE_ARGUMENTS_DO_
 
@@ -277,8 +277,8 @@ contains
             dsis = dia_sis - sis_sil
             ddet = dia_det + fla_det - det_nit
             ddetp = dia_detp + fla_detp - detp_pho
-            ddia = nit_dia - dia_nit
-            dfla = nit_fla - fla_nit
+            ddia = nit_dia - (dia_nit + dia_det)
+            dfla = nit_fla - (fla_nit + fla_det)
             doxy = dia_oxy + fla_oxy + det_oxy - (oxy_dia + oxy_fla)
 
             ! Update state variables
@@ -320,19 +320,24 @@ contains
             end if
         end function slim
 
-    end subroutine do_pelagic
+    end subroutine do
 
     subroutine get_vertical_movement(self, _ARGUMENTS_GET_VERTICAL_MOVEMENT_)
         !! Calculates sinking speed for particular matter
         class(type_imr_norwecom), intent(in) :: self
         _DECLARE_ARGUMENTS_GET_VERTICAL_MOVEMENT_
 
-        real(rk) :: sil
-        real(rk) :: sr_dia
+        real(rk) :: sil, dia, det, fla, detp, sis
+        real(rk) :: sr_dia, sr_det, sr_fla, sr_detp, sr_sis
 
         _LOOP_BEGIN_
 
             _GET_(self%id_sil, sil)
+            _GET_(self%id_sis, sis)
+            _GET_(self%id_dia, dia)
+            _GET_(self%id_fla, fla)
+            _GET_(self%id_det, det)
+            _GET_(self%id_detp, detp)
 
             if (sil .lt. self%SIB) then
                 sr_dia = self%SR_DIAMAX
@@ -340,10 +345,22 @@ contains
                 sr_dia = self%SR_DIAMIN + ((self%SR_DIAMAX - self%SR_DIAMIN) / sil)
             end if
 
-            _SET_VERTICAL_MOVEMENT_(self%id_dia, -sr_dia)
-            _SET_VERTICAL_MOVEMENT_(self%id_det, -self%SR_DET)
-            _SET_VERTICAL_MOVEMENT_(self%id_fla, -self%SR_FLA)
-            _SET_VERTICAL_MOVEMENT_(self%id_sis, -self%SR_SIS)
+            sr_det = self%SR_DET
+            sr_fla = self%SR_FLA
+            sr_detp = self%SR_DET
+            sr_sis = self%SR_SIS
+
+            if (dia .lt. 0.1_rk) sr_dia = 0.0_rk
+            if (fla .lt. 0.1_rk) sr_fla = 0.0_rk
+            if (det .lt. 0.1_rk) sr_det = 0.0_rk 
+            if (detp .lt. 0.1_rk * self%P_N_RATIO) sr_detp = 0.0_rk
+            if (sis .lt. 0.1_rk * self%SI_N_RATIO) sr_sis = 0.0_rk
+
+            _SET_VERTICAL_MOVEMENT_(self%id_dia, sr_dia)
+            _SET_VERTICAL_MOVEMENT_(self%id_det, sr_det)
+            _SET_VERTICAL_MOVEMENT_(self%id_fla, sr_fla)
+            _SET_VERTICAL_MOVEMENT_(self%id_sis, sr_sis)
+            _SET_VERTICAL_MOVEMENT_(self%id_detp, sr_detp)
 
         _LOOP_END_
     end subroutine get_vertical_movement
