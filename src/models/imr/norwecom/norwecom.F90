@@ -35,6 +35,7 @@ module imr_norwecom
         real(rk) :: P_N_RATIO !! Phosphorus to nitrogen ratio (mmol P (mmol N)-1)
         real(rk) :: SI_N_RATIO !! Silicon to nitrogen ratio (mmol Si (mmol N)-1)
         real(rk) :: C_N_RATIO !! Carbon to nitrogen ratio (mmol C (mmol N)-1)
+        real(rk) :: O_N_RATIO !! Oxygen to nitrogen ratio (mg O (mmol N)-1)
         real(rk) :: MIN_PHYTO !! Minimum phytoplankton concentration (mmol N m-3)
 
         ! Register state variable identifiers
@@ -44,7 +45,7 @@ module imr_norwecom
         type(type_state_variable_id) :: id_sis !! Biogenic silica (mmol Si m-3)
         type(type_state_variable_id) :: id_det !! Nitrogen detritus (mmol N m-3)
         type(type_state_variable_id) :: id_detp !! Phosphorus detritus (mmol P m-3)
-        type(type_state_variable_id) :: id_oxy !! Oxygen (mg l-1)
+        type(type_state_variable_id) :: id_oxy !! Oxygen (mg O2 l-1)
         type(type_state_variable_id) :: id_fla !! Flagellates (mmol N m-3)
         type(type_state_variable_id) :: id_dia !! Diatoms (mmol N m-3)
 
@@ -102,6 +103,7 @@ contains
         call self%get_parameter(self%P_N_RATIO, "P_N_RATIO", "mmol P (mmol N)-1", "Phosphorus to nitrogen ratio", default=0.0625_rk)
         call self%get_parameter(self%SI_N_RATIO, "SI_N_RATIO", "mmol Si (mmol N)-1", "Silicon to nitrogen ratio", default=0.875_rk)
         call self%get_parameter(self%C_N_RATIO, "C_N_RATIO", "mmol C (mmol N)-1", "Carbon to nitrogen ratio", default=6.625_rk)
+        call self%get_parameter(self%O_N_RATIO, "O_N_RATIO", "mmol C (mmol N)-1", "Oxygen to nitrogen ratio", default=1.4073_rk)
         call self%get_parameter(self%MIN_PHYTO, "MIN_PHYTO", "mmol N m-3", "Minimum phytoplankton concentration", default=0.1_rk)
         
         ! Initialize state variables
@@ -180,7 +182,8 @@ contains
         real(rk) :: nit_dia, nit_fla, dia_nit, fla_nit, dia_det, fla_det, det_nit
         real(rk) :: pho_dia, pho_fla, dia_pho, fla_pho, dia_detp, fla_detp, detp_pho
         real(rk) :: sil_dia, dia_sis, sis_sil
-        real(rk) :: dnit, dpho, dsil, dsis, ddet, ddetp, ddia, dfla
+        real(rk) :: oxy_dia, oxy_fla, dia_oxy, fla_oxy, det_oxy
+        real(rk) :: dnit, dpho, dsil, dsis, ddet, ddetp, ddia, dfla, doxy
 
         _LOOP_BEGIN_
 
@@ -260,6 +263,13 @@ contains
             dia_sis = self%SI_N_RATIO * (resp_dia + mort_dia)
             sis_sil = self%SCC4 * sis
 
+            ! Oxygen flows
+            oxy_dia = dia_nit * self%O_N_RATIO
+            oxy_fla = fla_nit * self%O_N_RATIO
+            dia_oxy = dia_nit * self%O_N_RATIO
+            fla_oxy = fla_nit * self%O_N_RATIO
+            det_oxy = det_nit * self%O_N_RATIO
+
             ! Rates of change
             dnit = dia_nit + fla_nit + det_nit - (nit_dia + nit_fla)
             dpho = dia_pho + fla_pho + detp_pho - (pho_dia + pho_fla)
@@ -269,6 +279,7 @@ contains
             ddetp = dia_detp + fla_detp - detp_pho
             ddia = nit_dia - dia_nit
             dfla = nit_fla - fla_nit
+            doxy = dia_oxy + fla_oxy + det_oxy - (oxy_dia + oxy_fla)
 
             ! Update state variables
             _SET_ODE_(self%id_nit, dnit)
@@ -279,6 +290,7 @@ contains
             _SET_ODE_(self%id_detp, ddetp)
             _SET_ODE_(self%id_dia, ddia)
             _SET_ODE_(self%id_fla, dfla)
+            _SET_ODE_(self%id_oxy, doxy)
 
             ! Update diagnostic variables
             _SET_DIAGNOSTIC_(self%id_dia_gpp, gpp_dia)
