@@ -35,6 +35,7 @@ module imr_norwecom
         real(rk) :: P_N_RATIO !! Phosphorus to nitrogen ratio (mmol P (mmol N)-1)
         real(rk) :: SI_N_RATIO !! Silicon to nitrogen ratio (mmol Si (mmol N)-1)
         real(rk) :: C_N_RATIO !! Carbon to nitrogen ratio (mmol C (mmol N)-1)
+        real(rk) :: MIN_PHYTO !! Minimum phytoplankton concentration (mmol N m-3)
 
         ! Register state variable identifiers
         type(type_state_variable_id) :: id_nit !! Nitrate (mmol N m-3)
@@ -101,6 +102,7 @@ contains
         call self%get_parameter(self%P_N_RATIO, "P_N_RATIO", "mmol P (mmol N)-1", "Phosphorus to nitrogen ratio", default=0.0625_rk)
         call self%get_parameter(self%SI_N_RATIO, "SI_N_RATIO", "mmol Si (mmol N)-1", "Silicon to nitrogen ratio", default=0.875_rk)
         call self%get_parameter(self%C_N_RATIO, "C_N_RATIO", "mmol C (mmol N)-1", "Carbon to nitrogen ratio", default=6.625_rk)
+        call self%get_parameter(self%MIN_PHYTO, "MIN_PHYTO", "mmol N m-3", "Minimum phytoplankton concentration", default=0.1_rk)
         
         ! Initialize state variables
         call self%register_state_variable(self%id_nit, "NIT", "mmol N m-3", "Nitrate", minimum=0.0_rk, initial_value=10.0_rk)
@@ -206,6 +208,10 @@ contains
             growth_dia = pmax * growth_lim * dia
             mort_dia = self%CC3 * dia
             resp_dia = self%AA5 * dia * exp(self%AA6 * temp)
+            if (dia .le. self%MIN_PHYTO) then
+                mort_dia = 0.0_rk
+                resp_dia = 0.0_rk
+            end if
 
             ! Flagellates
             pmax = self%AA3 * exp(self%AA4 * temp)
@@ -216,6 +222,10 @@ contains
             growth_fla = pmax * growth_lim * fla
             mort_fla = self%CC3 * fla
             resp_fla = self%AA5 * fla * exp(self%AA6 * temp)
+            if (fla .le. self%MIN_PHYTO) then
+                mort_fla = 0.0_rk
+                resp_fla = 0.0_rk
+            end if
 
             ! Gross and net primary production
             gpp_dia = growth_dia*self%C_N_RATIO*12.01_rk*1.0e-3_rk
