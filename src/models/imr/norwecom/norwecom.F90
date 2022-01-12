@@ -45,7 +45,7 @@ module imr_norwecom
         type(type_state_variable_id) :: id_sis !! Biogenic silica (mmol Si m-3)
         type(type_state_variable_id) :: id_det !! Nitrogen detritus (mmol N m-3)
         type(type_state_variable_id) :: id_detp !! Phosphorus detritus (mmol P m-3)
-        type(type_state_variable_id) :: id_oxy !! Oxygen (mg O l-1)
+        type(type_state_variable_id) :: id_oxy !! Oxygen (ml l-1)
         type(type_state_variable_id) :: id_fla !! Flagellates (mmol N m-3)
         type(type_state_variable_id) :: id_dia !! Diatoms (mmol N m-3)
 
@@ -103,7 +103,7 @@ contains
         call self%get_parameter(self%P_N_RATIO, "P_N_RATIO", "mmol P (mmol N)-1", "Phosphorus to nitrogen ratio", default=0.0625_rk)
         call self%get_parameter(self%SI_N_RATIO, "SI_N_RATIO", "mmol Si (mmol N)-1", "Silicon to nitrogen ratio", default=0.875_rk)
         call self%get_parameter(self%C_N_RATIO, "C_N_RATIO", "mmol C (mmol N)-1", "Carbon to nitrogen ratio", default=6.625_rk)
-        call self%get_parameter(self%O_N_RATIO, "O_N_RATIO", "mmol C (mmol N)-1", "Oxygen to nitrogen ratio", default=1.4073_rk)
+        call self%get_parameter(self%O_N_RATIO, "O_N_RATIO", "ml O (mmol N)-1", "Oxygen to nitrogen ratio", default=0.2_rk) ! TODO: check this!
         call self%get_parameter(self%MIN_PHYTO, "MIN_PHYTO", "mmol N m-3", "Minimum phytoplankton concentration", default=0.1_rk)
         
         ! Initialize state variables
@@ -136,33 +136,37 @@ contains
         class(type_imr_norwecom), intent(in) :: self
         _DECLARE_ARGUMENTS_DO_SURFACE_
 
-        real(rk) :: temp, sal, oxy, dens
-        real(rk) :: ts, o2_sat, o2_flux
-
+        real(rk), parameter :: a1 = -173.4292_rk
+        real(rk), parameter :: a2 = 249.6339_rk
+        real(rk), parameter :: a3 = 143.3483_rk
+        real(rk), parameter :: a4 = -21.8492_rk
+        real(rk), parameter :: b1 = -0.033096_rk
+        real(rk), parameter :: b2 = 0.014259_rk
+        real(rk), parameter :: b3 = -0.001700_rk
+        real(rk), parameter :: kelvin = 273.16_rk
+        real(rk), parameter :: pvel = 5.0_rk / 86400.0_rk
+        real(rk) :: osat_weiss, oxy_flux, tk
+        real(rk) :: temp, sal, oxy
+        
         _SURFACE_LOOP_BEGIN_
-
+        
             _GET_(self%id_temp, temp)
             _GET_(self%id_sal, sal)
             _GET_(self%id_oxy, oxy)
-            _GET_(self%id_dens, dens)
-
-            ! Oxygen
             
-            ! Calculate oxygen concentration (umol kg-1) following Kester et al., 1975
-            ts = temp + 273.15_rk
-            o2_sat = exp(-173.9894_rk + 255.5907_rk*100.0_rk/ts + 146.4813*log(ts/100.0_rk) - 22.2040_rk*ts/100.0_rk &
-                + sal*(-0.037376_rk + 0.016504_rk*ts/100.0_rk - 0.0020564_rk*ts*ts/10000.0_rk))
-            ! Convert to g/ml
-            o2_sat = o2_sat * dens * 32.0_rk * 1.0e-3_rk
-
-            ! Calculate oxygen flux
-            o2_flux = 5.0_rk / 86400.0_rk * (o2_sat - oxy)
+            ! Oxygen saturation state           
+            tk = temp + kelvin
+            osat_weiss = a1 + a2*100.0_rk/tk + a3*log(0.01_rk*tk) + a4*0.01_rk*tk
+            osat_weiss = osat_weiss + sal*(b1 + b2*0.01_rk*tk + b3*(0.01_rk*tk)**2)
+            osat_weiss = exp(osat_weiss)
+            
+            ! Surface oxygen flux
+            oxy_flux = pvel*(osat_weiss - oxy)
 
             ! Update state variables
-            _SET_SURFACE_EXCHANGE_(self%id_oxy, o2_flux)
+            _SET_SURFACE_EXCHANGE_(self%id_oxy, oxy_flux)
 
         _SURFACE_LOOP_END_
-
     end subroutine do_surface
 
     subroutine do(self, _ARGUMENTS_DO_)
@@ -182,7 +186,7 @@ contains
         real(rk) :: nit_dia, nit_fla, dia_nit, fla_nit, dia_det, fla_det, det_nit
         real(rk) :: pho_dia, pho_fla, dia_pho, fla_pho, dia_detp, fla_detp, detp_pho
         real(rk) :: sil_dia, dia_sis, sis_sil
-        real(rk) :: oxy_dia, oxy_fla, dia_oxy, fla_oxy, det_oxy
+        real(rk) :: oxy_dia, oxy_fla, dia_oxy, fla_oxy, oxy_det
         real(rk) :: dnit, dpho, dsil, dsis, ddet, ddetp, ddia, dfla, doxy
 
         _LOOP_BEGIN_
@@ -264,11 +268,11 @@ contains
             sis_sil = self%SCC4 * sis
 
             ! Oxygen flows
+            dia_oxy = nit_dia * self%O_N_RATIO
+            fla_oxy = nit_fla * self%O_N_RATIO
             oxy_dia = dia_nit * self%O_N_RATIO
             oxy_fla = fla_nit * self%O_N_RATIO
-            dia_oxy = dia_nit * self%O_N_RATIO
-            fla_oxy = fla_nit * self%O_N_RATIO
-            det_oxy = det_nit * self%O_N_RATIO
+            oxy_det = det_nit * self%O_N_RATIO
 
             ! Rates of change
             dnit = dia_nit + fla_nit + det_nit - (nit_dia + nit_fla)
@@ -279,7 +283,7 @@ contains
             ddetp = dia_detp + fla_detp - detp_pho
             ddia = nit_dia - (dia_nit + dia_det)
             dfla = nit_fla - (fla_nit + fla_det)
-            doxy = dia_oxy + fla_oxy + det_oxy - (oxy_dia + oxy_fla)
+            doxy = dia_oxy + fla_oxy - (oxy_dia + oxy_fla + oxy_det)
 
             ! Update state variables
             _SET_ODE_(self%id_nit, dnit)
