@@ -37,6 +37,20 @@ module imr_norwecom
         real(rk) :: C_N_RATIO !! Carbon to nitrogen ratio (mmol C (mmol N)-1)
         real(rk) :: O_N_RATIO !! Oxygen to nitrogen ratio (mg O (mmol N)-1)
         real(rk) :: MIN_PHYTO !! Minimum phytoplankton concentration (mmol N m-3)
+        real(rk) :: PI_MES_DIA !! Mesozooplankton preference for diatoms (0-1)
+        real(rk) :: PI_MES_MIC !! Mesozooplankton preference for microzooplankton (0-1)
+        real(rk) :: PI_MES_DET !! Mesozooplankton preference for detritus (0-1)
+        real(rk) :: PI_MIC_FLA !! Microzooplankton preference for flagellates (0-1)
+        real(rk) :: PI_MIC_DET !! Microzooplankton preference for detritus (0-1)
+        real(rk) :: K3 !! Half-saturation constant for zooplankton ingestion (mmol m-3)
+        real(rk) :: K6 !! Half-saturation constant for zooplankton loss (mmol m-3)
+        real(rk) :: BETA !! Zooplankton assimilation efficiency (0-1)
+        real(rk) :: DELTA !! Fraction of loss from zooplankton to detritus (0-1)
+        real(rk) :: MJU2 !! Microzooplankton maximum loss rate (s-1)
+        real(rk) :: MJU3 !! Mesozooplankton maximum loss rate (s-1)
+        real(rk) :: G_MIC !! Microzooplankton maximum growth rate (s-1)
+        real(rk) :: G_MES !! Mesozooplankton maximum growth rate (s-1)
+        real(rk) :: Q10 !! Temperature coefficient for zooplankton growth
 
         ! Register state variable identifiers
         type(type_state_variable_id) :: id_nit !! Nitrate (mmol N m-3)
@@ -48,6 +62,8 @@ module imr_norwecom
         type(type_state_variable_id) :: id_oxy !! Oxygen (ml l-1)
         type(type_state_variable_id) :: id_fla !! Flagellates (mmol N m-3)
         type(type_state_variable_id) :: id_dia !! Diatoms (mmol N m-3)
+        type(type_state_variable_id) :: id_mic !! Microzooplankton (mmol N m-3)
+        type(type_state_variable_id) :: id_mes !! Mesozooplankton (mmol N m-3)
 
         ! Register diagnostic variable identifiers
         type(type_diagnostic_variable_id) :: id_dia_gpp !! Diatom gross primary production (gC m-3 s-1)
@@ -105,7 +121,21 @@ contains
         call self%get_parameter(self%C_N_RATIO, "C_N_RATIO", "mmol C (mmol N)-1", "Carbon to nitrogen ratio", default=6.625_rk)
         call self%get_parameter(self%O_N_RATIO, "O_N_RATIO", "ml O (mmol N)-1", "Oxygen to nitrogen ratio", default=0.2_rk) ! TODO: check this!
         call self%get_parameter(self%MIN_PHYTO, "MIN_PHYTO", "mmol N m-3", "Minimum phytoplankton concentration", default=0.1_rk)
-        
+        call self%get_parameter(self%PI_MES_DIA, "PI_MES_DIA", "[0:1]", "Mesozooplankton preference for diatoms", default=0.450_rk)
+        call self%get_parameter(self%PI_MES_MIC, "PI_MES_MIC", "[0:1]", "Mesozooplankton preference for microzooplankton", default=0.275_rk)
+        call self%get_parameter(self%PI_MES_DET, "PI_MES_DET", "[0:1]", "Mesozooplankton preference for detritus", default=0.275_rk)
+        call self%get_parameter(self%PI_MIC_FLA, "PI_MIC_FLA", "[0:1]", "Microzooplankton preference for flagellates", default=0.633_rk)
+        call self%get_parameter(self%PI_MIC_DET, "PI_MIC_DET", "[0:1]", "Microzooplankton preference for detritus", default=0.367_rk)
+        call self%get_parameter(self%K3, "K3", "mmol m-3", "Half-saturation constant for zooplankton ingestion", default=1.0_rk)
+        call self%get_parameter(self%K6, "K6", "mmol m-3", "Half-saturation constant for zooplankton loss", default=0.2_rk)
+        call self%get_parameter(self%BETA, "BETA", "[0:1]", "Zooplankton assimilation efficiency", default=0.75_rk)
+        call self%get_parameter(self%DELTA, "DELTA", "[0:1]", "Fraction of loss from zooplankton to detritus", default=0.5_rk)
+        call self%get_parameter(self%MJU2, "MJU2", "s-1", "Microzooplankton maximum loss rate", default=2.315e-6_rk)
+        call self%get_parameter(self%MJU3, "MJU3", "s-1", "Mesozooplankton maximum loss rate", default=2.315e-6_rk)
+        call self%get_parameter(self%G_MIC, "G_MIC", "s-1", "Microzooplankton maximum growth rate", default=4.63e-6_rk)
+        call self%get_parameter(self%G_MES, "G_MES", "s-1", "Mesozooplankton maximum growth rate", default=4.63e-6_rk)
+        call self%get_parameter(self%Q10, "Q10", " ", "Temperature coefficient for zooplankton growth", default=1.5_rk)
+
         ! Initialize state variables
         call self%register_state_variable(self%id_nit, "NIT", "mmol N m-3", "Nitrate", minimum=0.0_rk, initial_value=10.0_rk)
         call self%register_state_variable(self%id_pho, "PHO", "mmol P m-3", "Phosphate", minimum=0.0_rk, initial_value=0.7_rk)
@@ -116,6 +146,8 @@ contains
         call self%register_state_variable(self%id_oxy, "OXY", "ml l-1", "Oxygen", minimum=0.0_rk, initial_value=8.0_rk)
         call self%register_state_variable(self%id_fla, "FLA", "mmol N m-3", "Flagellates", minimum=0.0001_rk, initial_value=0.1_rk)
         call self%register_state_variable(self%id_dia, "DIA", "mmol N m-3", "Diatoms", minimum=0.0001_rk, initial_value=0.1_rk)
+        call self%register_state_variable(self%id_mic, "MIC", "mmol N m-3", "Microzooplankton", minimum=0.0001_rk, initial_value=0.1_rk)
+        call self%register_state_variable(self%id_mes, "MES", "mmol N m-3", "Mesozooplankton", minimum=0.0001_rk, initial_value=0.1_rk)
 
         ! Initialze diagnostic variables
         call self%register_diagnostic_variable(self%id_gpp, "GPP", "gC m-3 s-1", "Gross primary production rate", output=output_time_step_averaged)
@@ -177,6 +209,7 @@ contains
         real(rk) :: temp, par
         real(rk) :: nit, pho, sil, sis, det, detp
         real(rk) :: dia, fla
+        real(rk) :: mic, mes
         real(rk) :: gpp, npp, gpp_dia, npp_dia, gpp_fla, npp_fla
 
         ! Temporary arrays
@@ -188,6 +221,14 @@ contains
         real(rk) :: sil_dia, dia_sis, sis_sil
         real(rk) :: oxy_dia, oxy_fla, dia_oxy, fla_oxy, oxy_det
         real(rk) :: dnit, dpho, dsil, dsis, ddet, ddetp, ddia, dfla, doxy
+        real(rk) :: denum, tmp
+        real(rk) :: p_fla_mic, p_det_mic, g_fla_mic, g_det_mic, mort_mic
+        real(rk) :: p_dia_mes, p_mic_mes, p_det_mes, g_dia_mes, g_mic_mes, g_det_mes, mort_mes
+        real(rk) :: mic_mes, mic_det, fla_mic, det_mic, mic_nit 
+        real(rk) :: mes_det, mes_nit, dia_mes, det_mes
+        real(rk) :: mic_pho, mic_detp, mes_pho, mes_detp
+        real(rk) :: mes_sis
+        real(rk) :: oxy_mic, oxy_mes
 
         _LOOP_BEGIN_
 
@@ -202,6 +243,8 @@ contains
             _GET_(self%id_fla, fla)
             _GET_(self%id_temp, temp)
             _GET_(self%id_par, par)
+            _GET_(self%id_mic, mic)
+            _GET_(self%id_mes, mes)
 
             ! Phytoplankton
 
@@ -242,6 +285,28 @@ contains
             gpp = gpp_dia + gpp_fla
             npp = npp_dia + npp_fla
 
+            ! Zooplankton terms
+
+            ! Microzooplankton
+            denum = self%PI_MIC_FLA*fla + self%PI_MIC_DET*det + 1.0e-8_rk
+            p_fla_mic = (self%PI_MIC_FLA*fla)/denum
+            p_det_mic = (self%PI_MIC_DET*det)/denum
+            tmp = self%Q10**((temp-10.0_rk)/10.0_rk)*self%G_MIC/(self%K3 + p_fla_mic*fla + p_det_mic*det)
+            g_fla_mic = tmp*p_fla_mic*fla*mic
+            g_det_mic = tmp*p_det_mic*det*mic
+            mort_mic = self%MJU2*(mic/(self%K6 + mic))*mic
+
+            ! Mezozooplankton
+            denum = self%PI_MES_DIA*dia + self%PI_MES_MIC*mic + self%PI_MES_DET*det + 1.0e-8_rk
+            p_dia_mes = (self%PI_MES_DIA*dia)/denum
+            p_mic_mes = (self%PI_MES_MIC*mic)/denum
+            p_det_mic = (self%PI_MES_DET*det)/denum
+            tmp = self%Q10**((temp-10.0_rk)/10.0_rk)*self%G_MES/(self%K3 + p_dia_mes*dia + p_mic_mes*mic + p_det_mes*det)
+            g_dia_mes = tmp*p_dia_mes*dia
+            g_mic_mes = tmp*p_mic_mes*mic
+            g_det_mes = tmp*p_det_mes*det
+            mort_mes = self%MJU3*(mes/(self%K6 + mes))*mes
+
             ! Sinks and sources terms
 
             ! Nitrogen flows
@@ -252,6 +317,15 @@ contains
             dia_det = 0.9_rk * mort_dia
             fla_det = 0.9_rk * mort_fla
             det_nit = self%CC4 * det
+            dia_mes = g_dia_mes
+            mic_mes = g_mic_mes
+            det_mes = g_det_mes
+            fla_mic = g_fla_mic
+            det_mic = g_det_mic
+            mic_det = self%DELTA*mort_mic + (1.0_rk - self%BETA)*(g_fla_mic + g_det_mic)
+            mic_nit = (1.0_rk - self%DELTA)*mort_mic
+            mes_det = self%DELTA*mort_mes + (1.0_rk - self%BETA)*(dia_mes + mic_mes + det_mes)
+            mes_nit = (1.0_rk - self%DELTA)*mort_mes
 
             ! Phosphorus flows
             pho_dia = self%P_N_RATIO * nit_dia
@@ -260,12 +334,17 @@ contains
             fla_pho = self%P_N_RATIO * (resp_fla + 0.25_rk * mort_fla)
             dia_detp = self%P_N_RATIO * 0.75_rk * mort_dia
             fla_detp = self%P_N_RATIO * 0.75_rk * mort_fla
+            mic_pho = self%P_N_RATIO * mic_nit
+            mic_detp = self%P_N_RATIO * mic_det
+            mes_pho = self%P_N_RATIO * mes_nit
+            mes_detp = self%P_N_RATIO * mes_det
             detp_pho = 1.3_rk * self%CC4 * detp
 
             ! Silicon flows
-            sil_dia = self%SI_N_RATIO * nit_dia
-            dia_sis = self%SI_N_RATIO * (resp_dia + mort_dia)
-            sis_sil = self%SCC4 * sis
+            sil_dia = self%SI_N_RATIO*nit_dia
+            dia_sis = self%SI_N_RATIO*(resp_dia + mort_dia)
+            mes_sis = self%SI_N_RATIO*mes_det
+            sis_sil = self%SCC4*sis
 
             ! Oxygen flows
             dia_oxy = nit_dia * self%O_N_RATIO
@@ -273,17 +352,19 @@ contains
             oxy_dia = dia_nit * self%O_N_RATIO
             oxy_fla = fla_nit * self%O_N_RATIO
             oxy_det = det_nit * self%O_N_RATIO
+            oxy_mic = mic_nit * self%O_N_RATIO
+            oxy_mes = mes_nit * self%O_N_RATIO
 
             ! Rates of change
-            dnit = dia_nit + fla_nit + det_nit - (nit_dia + nit_fla)
-            dpho = dia_pho + fla_pho + detp_pho - (pho_dia + pho_fla)
+            dnit = dia_nit + fla_nit + det_nit + mic_nit + mes_nit - (nit_dia + nit_fla)
+            dpho = dia_pho + fla_pho + detp_pho + mic_pho + mes_pho - (pho_dia + pho_fla)
             dsil = sis_sil - sil_dia
-            dsis = dia_sis - sis_sil
-            ddet = dia_det + fla_det - det_nit
-            ddetp = dia_detp + fla_detp - detp_pho
-            ddia = nit_dia - (dia_nit + dia_det)
-            dfla = nit_fla - (fla_nit + fla_det)
-            doxy = dia_oxy + fla_oxy - (oxy_dia + oxy_fla + oxy_det)
+            dsis = dia_sis + mes_sis - sis_sil
+            ddet = dia_det + fla_det + mic_det + mes_det - det_nit
+            ddetp = dia_detp + fla_detp + mic_detp + mes_detp - detp_pho
+            ddia = nit_dia - (dia_nit + dia_det + dia_mes)
+            dfla = nit_fla - (fla_nit + fla_det + fla_mic)
+            doxy = dia_oxy + fla_oxy - (oxy_dia + oxy_fla + oxy_det + oxy_mic + oxy_mes)
 
             ! Update state variables
             _SET_ODE_(self%id_nit, dnit)
