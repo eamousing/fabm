@@ -1,8 +1,7 @@
 module imr_model_library
 
    use fabm_types, only: type_base_model_factory, type_base_model
-   use imr_norwecom
-
+   
    implicit none
 
    private
@@ -17,12 +16,16 @@ module imr_model_library
 contains
 
    subroutine create(self, name, model)
+
+      use imr_norwecom
+
       class(type_factory), intent(in) :: self
       character(*), intent(in) :: name
       class(type_base_model), pointer :: model
 
       select case (name)
-         case('norwecom'); allocate(type_imr_norwecom::model)
+         case('norwecom')
+            allocate(type_imr_norwecom::model)
       end select
    end subroutine create
 
