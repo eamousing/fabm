@@ -19,6 +19,7 @@ set(DEFAULT_INSTITUTES
     ersem        # European Regional Seas Ecosystem Model
     examples     # Examples supplied with FABM itself
     gotm         # Models ported from original GOTM/BIO library
+    imr          # Institute of Marine Research
     iow          # Leibniz Institute for Baltic Sea Research, Germany
     jrc          # EC - Joint Research Centre, Ispra, Italy
     msi          # Marine Systems Institute, Tallinn University of Technology, Estonia
