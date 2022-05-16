@@ -37,7 +37,7 @@ module imr_norwecom
       type(type_dependency_id) :: id_par
    contains
       procedure :: initialize
-      ! procedure :: do_surface
+      procedure :: do_surface
       procedure :: do
       ! procedure :: do_bottom
    end type
@@ -55,9 +55,11 @@ contains
       call self%get_parameter(self%a(4), "a(4)", "degC-1", "Flagellate temp dependent Pmax", default=0.063_rk)
       call self%get_parameter(self%a(5), "a(5)", "s-1", "Phyto metabolic loss rate at 0 degC", default=8.05e-7_rk)
       call self%get_parameter(self%a(6), "a(6)", "degC-1", "Phyto metabolic loss rate temp dependence", default=0.07_rk)
+      call self%get_parameter(self%ad(1), "ad(1)", "m2 uE-1", "Diatoms growth affinity for irradiance", default=3.6e-7_rk)
       call self%get_parameter(self%ad(2), "ad(2)", "s-1 uM-1", "Diatoms growth affinity for nitrate", default=1.7e-5_rk)
       call self%get_parameter(self%ad(3), "ad(3)", "s-1 uM-1", "Diatoms growth affinity for phosphate", default=2.7e-4_rk)
       call self%get_parameter(self%ad(4), "ad(4)", "s-1 uM-1", "Diatoms growth affinity for silicate", default=2.5e-5_rk)
+      call self%get_parameter(self%af(1), "af(1)", "m2 uE-1", "Flagellates growth affinity for irradience", default=1.1e-7_rk)
       call self%get_parameter(self%af(2), "af(2)", "s-1 uM-1", "Flagellates growth affinity for nitrate", default=1.5e-5_rk)
       call self%get_parameter(self%af(3), "af(3)", "s-1 uM-1", "Flagellates growth affinity for phosphate", default=2.5e-4_rk)
       call self%get_parameter(self%cc(1), "cc(1)", "mgP mgN-1", "Intercellular P/N ratio", default=0.138_rk)
@@ -81,17 +83,22 @@ contains
       call self%register_state_variable(self%id_sis, "sis", "mgSi m-3", "Biogenic silica concentration", &
          minimum=0.0_rk, initial_value=0.1_rk, vertical_movement=-3.47e-5_rk)
       call self%register_state_variable(self%id_dia, "dia", "mgN m-3", "Diatoms concentration", &
-         minimum=0.01_rk, initial_value=0.1_rk, vertical_movement=-3.47e-5_rk)
+         minimum=0.0001_rk, initial_value=0.1_rk, vertical_movement=-2.89e-6_rk) ! -3.47e-5_rk)
       call self%register_state_variable(self%id_fla, "fla", "mgN m-3", "Flagellates concentration", &
-         minimum=0.01_rk, initial_value=0.1_rk, vertical_movement=-2.89e-6_rk)
-      call self%register_state_variable(self%id_oxy, "oxy", "mgO m-3", "Oxygen concentration", &
-         minimum=0.0_rk, initial_value=1.0_rk)
+         minimum=0.0001_rk, initial_value=0.1_rk, vertical_movement=-2.89e-6_rk)
+      call self%register_state_variable(self%id_oxy, "oxy", "mgO l-1", "Oxygen concentration", &
+         minimum=0.0_rk, initial_value=10.0_rk)
 
       ! Initialize dependencies
       call self%register_dependency(self%id_temp, standard_variables%temperature)
       call self%register_dependency(self%id_salt, standard_variables%practical_salinity)
       call self%register_dependency(self%id_dens, standard_variables%density)
       call self%register_dependency(self%id_par, standard_variables%downwelling_photosynthetic_radiative_flux)
+
+      call self%add_to_aggregate_variable(standard_variables%total_nitrogen, self%id_dia)
+      call self%add_to_aggregate_variable(standard_variables%total_nitrogen, self%id_fla)
+      call self%add_to_aggregate_variable(standard_variables%total_nitrogen, self%id_det)
+      call self%add_to_aggregate_variable(standard_variables%total_nitrogen, self%id_nit)
    end subroutine initialize
 
    subroutine do_surface(self, _ARGUMENTS_DO_SURFACE_)
@@ -101,7 +108,9 @@ contains
       _DECLARE_ARGUMENTS_DO_SURFACE_
 
       real(rk) :: temp, salt, dens, oxy
-      real(rk) :: tempk, osat
+      real(rk) :: tempk, pvel, osat, doxy
+
+      pvel = 5.0
 
       _SURFACE_LOOP_BEGIN_
 
@@ -111,9 +120,14 @@ contains
       _GET_(self%id_oxy, oxy)
 
       tempk = (temp + 273.15) / 100.0
-      osat = exp(-173.4292 + 249.6339 / tempk + 143.3483 * log(tempk) - 21.8492 * tempk + &
-         salt * (-0.033096 + 0.014259 * tempk - 0.0017 * tempk * tempk)) ! ml l-1
+      osat = exp(-173.9894 + 255.5907 / tempk + 146.4813 * log(tempk) - 22.2040 * tempk + &
+         salt * (-0.037376 + 0.016504 * tempk - 0.0020564 * tempk * tempk)) ! mol kg-1
+      osat = osat * dens ! mol m-3
+      osat = osat * 32.0 * 1e-6 ! mg m-3
+      doxy = (pvel / 86400.0) * (osat - oxy)
 
+      _ADD_SURFACE_FLUX_(self%id_oxy, doxy)
+      
       _SURFACE_LOOP_END_
    end subroutine do_surface
 
@@ -121,14 +135,15 @@ contains
       class(type_imr_norwecom), intent(in) :: self
       _DECLARE_ARGUMENTS_DO_
 
-      real(rk) :: temp, dia, fla, nit, pho, sil, det, sis, oxy
-      real(rk) :: umax, nit_lim, pho_lim, sil_lim
+      real(rk) :: temp, dia, fla, nit, pho, sil, det, sis, oxy, par, rad
+      real(rk) :: umax, rad_lim, nit_lim, pho_lim, sil_lim
       real(rk) :: prod_dia, resp_dia, mort_dia, prod_fla, resp_fla, mort_fla
       real(rk) :: dnit, dpho, dsil, ddet, dsis, ddia, dfla, doxy
 
       _LOOP_BEGIN_
 
       _GET_(self%id_temp, temp)
+      _GET_(self%id_par, par)
       _GET_(self%id_dia, dia)
       _GET_(self%id_fla, fla)
       _GET_(self%id_nit, nit)
@@ -138,34 +153,45 @@ contains
       _GET_(self%id_sis, sis)
       _GET_(self%id_oxy, oxy)
 
-      ! print *, dia, fla, det, nit
+      rad = par / 0.217 ! W m-2 to uE m-2 s-1
 
       ! Diatoms
       umax = self%a(1) * exp(self%a(2) * temp)
-      nit_lim = nit / (nit + (umax / self%ad(2)))
-      pho_lim = pho / (pho + (umax / self%ad(3)))
-      sil_lim = sil / (sil + (umax / self%ad(4)))
-      prod_dia = umax * min(nit_lim, pho_lim, sil_lim) * dia
+      rad_lim = slim(self%ad(1), umax, rad)
+      nit_lim = slim(self%ad(2), umax, nit)
+      pho_lim = slim(self%ad(3), umax, pho) 
+      sil_lim = slim(self%ad(4), umax, sil)
+      prod_dia = umax * rad_lim * min(nit_lim, pho_lim, sil_lim) * dia
       resp_dia = self%a(5) * dia * exp(self%a(6) * temp)
       mort_dia = self%cc(3) * dia
 
+      if (dia < self%diamin) then
+         resp_dia = 0.0
+         mort_dia = 0.0
+      end if
+
       ! Flagellates
       umax = self%a(3) * exp(self%a(4) * temp)
-      nit_lim = nit / (nit + (umax + self%af(2)))
-      pho_lim = pho / (pho + (umax + self%af(3)))
-      prod_fla = umax * min(nit_lim, pho_lim) * fla
+      rad_lim = slim(self%af(1), umax, rad)
+      nit_lim = slim(self%af(2), umax, nit) 
+      pho_lim = slim(self%ad(3), umax, pho)
+      prod_fla = umax * rad_lim * min(nit_lim, pho_lim) * fla
       resp_fla = self%a(5) * fla * exp(self%a(6) * temp)
       mort_fla = self%cc(3) * fla
 
+      if (fla < self%flamin) then
+         resp_fla = 0.0
+         mort_fla = 0.0
+      end if
+
       ! Fluxes
       dnit = resp_dia + resp_fla + self%cc(4) * det - (prod_dia + prod_fla)
-      dpho = self%cc(1) * dnit ! (resp_dia + resp_fla + self%cc(4) * det - (prod_dia + prod_fla))
+      dpho = self%cc(1) * dnit
       dsil = self%scc(4) * sis - self%cc(2) * prod_dia
       ddet = mort_dia + mort_fla - self%cc(4) * det
       dsis = self%cc(2) * (resp_dia + mort_dia) - self%scc(4) * sis
       ddia = prod_dia - (resp_dia + mort_dia)
       dfla = prod_fla - (resp_fla + mort_fla)
-      print *, prod_fla, resp_fla, mort_fla
       doxy = self%scc(1) * (prod_dia + prod_fla - (resp_dia + resp_fla + self%cc(4) * det))
 
       ! Update FABM
@@ -176,9 +202,24 @@ contains
       _ADD_SOURCE_(self%id_sis, dsis)
       _ADD_SOURCE_(self%id_dia, ddia)
       _ADD_SOURCE_(self%id_fla, dfla)
-      _ADD_SOURCE_(self%id_oxy, doxy)
+      _ADD_SOURCE_(self%id_oxy, doxy*1e-3) ! mg m-3 -> mg l-1
 
       _LOOP_END_
+   
+   contains
+
+      real(rk) function slim(alpha, pmax, s)
+         real(rk), intent(in) :: alpha
+         real(rk), intent(in) :: pmax
+         real(rk), intent(in) :: s
+
+         if (s < 0.0) then
+            slim = 0.0
+         else
+            slim = s / (s + (pmax / alpha))
+         end if
+      end function
+
    end subroutine do
 
    subroutine do_bottom(self, _ARGUMENTS_DO_BOTTOM_)
