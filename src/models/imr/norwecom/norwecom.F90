@@ -16,6 +16,9 @@ module imr_norwecom
       real(rk) :: cc(4)
       real(rk) :: diamin
       real(rk) :: flamin
+      real(rk) :: srdia_min
+      real(rk) :: srdia_max
+      real(rk) :: sib
       real(rk) :: scc(7)
 
       ! State variables
@@ -40,6 +43,7 @@ module imr_norwecom
       procedure :: do_surface
       procedure :: do
       ! procedure :: do_bottom
+      procedure :: get_vertical_movement
    end type
 
 contains
@@ -68,6 +72,9 @@ contains
       call self%get_parameter(self%cc(4), "cc(4)", "s-1", "Detritus decomposition rate", default=1.52e-7_rk)
       call self%get_parameter(self%diamin, "diamin", "mgN m-3", "Minimum diatoms concentration", default=0.1_rk)
       call self%get_parameter(self%flamin, "flamin", "mgN m-3", "Minimum flagellates concentration", default=0.1_rk)
+      call self%get_parameter(self%srdia_min, "srdia_min", "m s-1", "Diatoms minimum sinking rate", default=3.47e-6_rk)
+      call self%get_parameter(self%srdia_max, "srdia_max", "m s-1", "Diatoms maximum sinking rate", default=3.47e-5_rk)
+      call self%get_parameter(self%sib, "sib", "uM", "Conc. of silicate where diatom max sinking speed", default=1.0_rk)
       call self%get_parameter(self%scc(1), "scc(1)", "mgO mgN-1", "O/N consumption ratio", default=19.71_rk)
       call self%get_parameter(self%scc(4), "scc(4)", "s-1", "Biogenic silica decomposition rate", default=1.45e-8_rk)
 
@@ -228,5 +235,32 @@ contains
 
 
    end subroutine do_bottom
+
+   subroutine get_vertical_movement(self, _ARGUMENTS_GET_VERTICAL_MOVEMENT_)
+      class(type_imr_norwecom), intent(in) :: self
+      _DECLARE_ARGUMENTS_GET_VERTICAL_MOVEMENT_
+
+      real(rk) :: dia, sil, vdia, csil
+
+      csil = 28.09_rk
+
+      _LOOP_BEGIN_
+
+      _GET_(self%id_dia, dia)
+      _GET_(self%id_sil, sil)
+
+      if (sil / csil < self%sib) then
+         vdia = self%srdia_max
+      else
+         vdia = self%srdia_min + (self%srdia_max - self%srdia_min) / (sil / csil)
+      end if
+
+      ! Stop sinking if concentration is too low
+      if (dia < self%diamin) vdia = 0.0_rk
+
+      _ADD_VERTICAL_VELOCITY_(self%id_dia, -1.0 * vdia)
+
+      _LOOP_END_
+   end subroutine get_vertical_movement
 
 end module imr_norwecom
