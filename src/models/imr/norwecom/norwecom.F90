@@ -30,6 +30,8 @@ module imr_norwecom
       type(type_state_variable_id) :: id_dia
       type(type_state_variable_id) :: id_fla
       type(type_state_variable_id) :: id_oxy
+      type(type_bottom_state_variable_id) :: id_sdet
+      type(type_bottom_state_variable_id) :: id_ssis
 
       ! Diagnostic variables
 
@@ -38,11 +40,12 @@ module imr_norwecom
       type(type_dependency_id) :: id_salt
       type(type_dependency_id) :: id_dens
       type(type_dependency_id) :: id_par
+      type(type_horizontal_dependency_id) :: id_bstr
    contains
       procedure :: initialize
       procedure :: do_surface
       procedure :: do
-      ! procedure :: do_bottom
+      procedure :: do_bottom
       procedure :: get_vertical_movement
    end type
 
@@ -90,17 +93,20 @@ contains
       call self%register_state_variable(self%id_sis, "sis", "mgSi m-3", "Biogenic silica concentration", &
          minimum=0.0_rk, initial_value=0.1_rk, vertical_movement=-3.47e-5_rk)
       call self%register_state_variable(self%id_dia, "dia", "mgN m-3", "Diatoms concentration", &
-         minimum=0.0001_rk, initial_value=0.1_rk, vertical_movement=-2.89e-6_rk) ! -3.47e-5_rk)
+         minimum=0.0001_rk, initial_value=0.1_rk)
       call self%register_state_variable(self%id_fla, "fla", "mgN m-3", "Flagellates concentration", &
          minimum=0.0001_rk, initial_value=0.1_rk, vertical_movement=-2.89e-6_rk)
       call self%register_state_variable(self%id_oxy, "oxy", "mgO l-1", "Oxygen concentration", &
          minimum=0.0_rk, initial_value=10.0_rk)
+      call self%register_state_variable(self%id_sdet, "sdet", "mgN m-2", "Detritus sediement pool", &
+         minimum=0.0_rk, initial_value=0.1_rk)
 
       ! Initialize dependencies
       call self%register_dependency(self%id_temp, standard_variables%temperature)
       call self%register_dependency(self%id_salt, standard_variables%practical_salinity)
       call self%register_dependency(self%id_dens, standard_variables%density)
       call self%register_dependency(self%id_par, standard_variables%downwelling_photosynthetic_radiative_flux)
+      call self%register_dependency(self%id_bstr, standard_variables%bottom_stress)
 
       call self%add_to_aggregate_variable(standard_variables%total_nitrogen, self%id_dia)
       call self%add_to_aggregate_variable(standard_variables%total_nitrogen, self%id_fla)
@@ -233,7 +239,18 @@ contains
       class(type_imr_norwecom), intent(in) :: self
       _DECLARE_ARGUMENTS_DO_BOTTOM_
 
+      real(rk) :: bstr, sdet, ssis
 
+      _BOTTOM_LOOP_BEGIN_
+
+      _GET_HORIZONTAL_(self%id_bstr, bstr)
+      _GET_HORIZONTAL_(self%id_sdet, sdet)
+      _GET_HORIZONTAL_(self%id_ssis, ssis)
+
+      
+
+
+      _BOTTOM_LOOP_END_
    end subroutine do_bottom
 
    subroutine get_vertical_movement(self, _ARGUMENTS_GET_VERTICAL_MOVEMENT_)
