@@ -1,3 +1,5 @@
+#include "fabm_driver.h"
+
 module imr_model_library
 
     use fabm_types, only: type_base_model_factory, type_base_model

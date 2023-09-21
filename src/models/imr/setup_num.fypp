@@ -1,0 +1,6 @@
+#:mute
+
+#:set DEBUG = defined('DEBUG')
+#:set NGROUPS = 4
+
+#:endmute

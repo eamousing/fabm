@@ -1,3 +1,4 @@
+#:include 'setup_num.fypp'
 #include "fabm_driver.h"
 
 module imr_norwecom_num
