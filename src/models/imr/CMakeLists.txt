@@ -1,6 +1,16 @@
 add_library(fabm_models_imr OBJECT
     imr_model_library.F90
     norwecom_num.F90
+    num_model/Fortran/input.f90
+    num_model/Fortran/globals.f90
+    num_model/Fortran/spectrum.f90
+    num_model/Fortran/generalists.f90
+    num_model/Fortran/generalists_csp.f90
+    num_model/Fortran/diatoms_simple.f90
+    num_model/Fortran/diatoms.f90
+    num_model/Fortran/copepods.f90
+    num_model/Fortran/POM.f90
+    num_model/Fortran/NUMmodel.f90
     )
 
 # Run the fypp preprocessor
@@ -26,6 +36,6 @@ foreach(infileName IN LISTS fppFiles)
 
     # Finally add output file to a list
     set(outFiles ${outFiles} "${outfile}")
-endforeach(fname IN LISTS fpp_files)
+endforeach(infileName IN LISTS fppFiles)
 
 add_dependencies(fabm_models_imr fabm_base)
