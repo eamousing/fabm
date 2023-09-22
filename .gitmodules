@@ -1,0 +1,4 @@
+[submodule "src/models/imr/num_model"]
+	path = src/models/imr/num_model
+	url = git@github.com:eamousing/NUMmodel.git
+	branch = fabm
