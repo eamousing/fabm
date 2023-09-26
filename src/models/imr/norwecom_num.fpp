@@ -82,10 +82,7 @@ contains
         ! Convert photosynthetic radiative flux
         par = par / 0.217_rk ! W m-2 -> uE m-2 s-1
 
-        call calcDerivatives(u, par, temp, 1.0_dp, dudt)
-        ! call printRates()
-
-        ! print *, idxB, size(dudt)
+        call calcDerivatives(u, par, temp, 1.0_dp, dudt, .false.)
 
         #:for p in range(NGROUPS)
         _ADD_SOURCE_(self%id_p${p+1}$, (real(dudt(idxB+${p}$), kind=rk)/daysec))
