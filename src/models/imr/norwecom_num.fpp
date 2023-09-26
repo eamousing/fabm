@@ -32,6 +32,8 @@ module imr_norwecom_num
 
     real(dp), allocatable :: u(:)
     real(dp), allocatable :: dudt(:)
+    character(len=20) :: errorstr
+    logical(1) :: errorio = .false.
 
 contains
 
@@ -54,7 +56,7 @@ contains
         call self%register_dependency(self%id_par, standard_variables%downwelling_photosynthetic_radiative_flux)
 
         ! Initialize unicellular size spectrum
-        call setupGeneralistsOnly(${NGROUPS}$)
+        call setupGeneralistsOnly(${NGROUPS}$, errorio, errorstr)
         allocate(u(nGrid))
         allocate(dudt(nGrid))
     end subroutine initialize

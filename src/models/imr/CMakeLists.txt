@@ -1,11 +1,11 @@
 add_library(fabm_models_imr OBJECT
     imr_model_library.F90
     norwecom_num.F90
-    num_model/Fortran/input.f90
+    num_model/Fortran/read_input.f90
     num_model/Fortran/globals.f90
     num_model/Fortran/spectrum.f90
+    num_model/Fortran/generalists_simple.f90
     num_model/Fortran/generalists.f90
-    num_model/Fortran/generalists_csp.f90
     num_model/Fortran/diatoms_simple.f90
     num_model/Fortran/diatoms.f90
     num_model/Fortran/copepods.f90
