@@ -5,11 +5,13 @@ module imr_norwecom_num
 
     use fabm_types
     use globals, only: dp
-    use NUMmodel, only: setupGeneralistsOnly, calcDerivatives, idxN, idxDOC, idxB, nGrid
+    use NUMmodel, only: setupGeneralistsOnly, calcDerivatives, idxN, idxDOC, idxB, nGrid, printRates
 
     implicit none
 
     private
+
+    real(rk), parameter :: daysec = 86400.0_rk
 
     type, extends(type_base_model), public :: type_imr_norwecom_num
         ! State variables
@@ -37,13 +39,15 @@ contains
         class(type_imr_norwecom_num), intent(inout), target :: self
         integer, intent(in) :: configunit
 
+        ! Parameters
+
         ! State variables
         #:for p in range(NGROUPS)
-        call self%register_state_variable(self%id_p${p+1}$, "p${p+1}$", "ugC l-1", "Protist size group ${p}$")
+        call self%register_state_variable(self%id_p${p+1}$, "p${p+1}$", "ugC l-1", "Protist size group ${p}$", minimum = 0.0_rk, initial_value = 10.0_rk)
         #:endfor
-        call self%register_state_variable(self%id_no3, "no3", "ugN l-1", "Nitrate concentration")
-        call self%register_state_variable(self%id_doc, "doc", "ugC l-1", "Dissolved organic carbon")
-        call self%register_state_variable(self%id_poc, "poc", "ugC l-1", "Particulate organic matter")
+        call self%register_state_variable(self%id_no3, "no3", "ugN l-1", "Nitrate concentration", minimum = 0.0_rk, initial_value = 150.0_rk)
+        call self%register_state_variable(self%id_doc, "doc", "ugC l-1", "Dissolved organic carbon", minimum = 0.0_rk, initial_value = 10.0_rk)
+        call self%register_state_variable(self%id_poc, "poc", "ugC l-1", "Particulate organic matter", minimum = 0.0_rk, initial_value = 10.0_rk)
 
         ! Dependencies
         call self%register_dependency(self%id_temp, standard_variables%temperature)
@@ -76,13 +80,16 @@ contains
         ! Convert photosynthetic radiative flux
         par = par / 0.217_rk ! W m-2 -> uE m-2 s-1
 
-        call calcDerivatives(u, par, temp, self%dt, dudt)
+        call calcDerivatives(u, par, temp, 1.0_dp, dudt)
+        ! call printRates()
+
+        ! print *, idxB, size(dudt)
 
         #:for p in range(NGROUPS)
-        _ADD_SOURCE_(self%id_p${p+1}$, real(dudt(idxB+${p}$), kind=rk))
+        _ADD_SOURCE_(self%id_p${p+1}$, (real(dudt(idxB+${p}$), kind=rk)/daysec))
         #:endfor
-        _ADD_SOURCE_(self%id_no3, real(dudt(idxN), kind=rk))
-        _ADD_SOURCE_(self%id_doc, real(dudt(idxDOC), kind=rk))
+        _ADD_SOURCE_(self%id_no3, (real(dudt(idxN), kind=rk)/daysec))
+        _ADD_SOURCE_(self%id_doc, (real(dudt(idxDOC), kind=rk)/daysec))
 
         _LOOP_END_
     end subroutine do
