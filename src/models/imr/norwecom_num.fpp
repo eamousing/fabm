@@ -19,6 +19,9 @@ module imr_norwecom_num
         #:for p in range(NGENERALISTS)
         type(type_state_variable_id) :: id_p${p+1}$
         #:endfor
+        #:for p in range(NGENERALISTS)
+        type(type_state_variable_id) :: id_dia${p+1}$
+        #:endfor
         #:for p in range(NPOM)
         type(type_state_variable_id) :: id_pom${p+1}$
         #:endfor
@@ -29,8 +32,8 @@ module imr_norwecom_num
         type(type_state_variable_id) :: id_pcop${p+1}$
         #:endfor
         type(type_state_variable_id) :: id_no3
+        type(type_state_variable_id) :: id_si
         type(type_state_variable_id) :: id_doc
-        type(type_state_variable_id) :: id_poc
 
         ! Dependencies
         type(type_dependency_id) :: id_temp
@@ -61,6 +64,9 @@ contains
         #:for p in range(NGENERALISTS)
         call self%register_state_variable(self%id_p${p+1}$, "p${p+1}$", "ugC l-1", "Generalist size group ${p+1}$", minimum = 0.0_rk, initial_value = 0.005_rk + 0.01_rk * ${p+1}$)
         #:endfor
+        #:for p in range(NGENERALISTS)
+        call self%register_state_variable(self%id_dia${p+1}$, "dia${p+1}$", "ugC l-1", "Diatom size group ${p+1}$", minimum = 0.0_rk, initial_value = 0.005_rk + 0.01_rk * ${p+1}$)
+        #:endfor
         #:for p in range(NPOM)
         call self%register_state_variable(self%id_pom${p+1}$, "pom${p+1}$", "ugC l-1", "Particulate organic matter size group ${p+1}$", minimum = 0.0_rk, initial_value = 10.0_rk)
         #:endfor
@@ -71,8 +77,8 @@ contains
         call self%register_state_variable(self%id_pcop${p+1}$, "pcop${p+1}$", "ugC l-1", "Passive copepods group ${p+1}$", minimum = 0.0_rk, initial_value = 0.01_rk)
         #:endfor
         call self%register_state_variable(self%id_no3, "no3", "ugN l-1", "Nitrate concentration", minimum = 0.0_rk, initial_value = 150.0_rk)
+        call self%register_state_variable(self%id_si, "si", "ugSi l-1", "Silicate concentration", minimum = 0.0_rk, initial_value = 50.0_rk)
         call self%register_state_variable(self%id_doc, "doc", "ugC l-1", "Dissolved organic carbon", minimum = 0.0_rk, initial_value = 150.0_rk)
-        call self%register_state_variable(self%id_poc, "poc", "ugC l-1", "Particulate organic matter", minimum = 0.0_rk, initial_value = 10.0_rk)
 
         ! Dependencies
         call self%register_dependency(self%id_temp, standard_variables%temperature)
@@ -107,17 +113,21 @@ contains
         _LOOP_BEGIN_ 
 
         u = 0.0_dp
+        
+        !---- Get Local concentrations ----!
 
-        ! Get local concentrations
+        ! First we get concentrations of the generalists as it uses its own index
         #:for p in range(NGENERALISTS)
         _GET_(self%id_p${p+1}$, u(idxB+${p}$))
         #:endfor
-        ! #:for p in range(NPOM)
-        ! _GET_(self%id_pom${p+1}$, u(ixStart(idxPOM)+${p}$))
-        ! #:endfor
 
+        ! Then we get concentrations of other groups where the index is defined in ixStart
         do iGroup = 1, nGroups
             select type(spec => group(iGroup)%spec)
+            type is(spectrumDiatoms)
+                #:for p in range(NGENERALISTS)
+                _GET_(self%id_dia${p+1}$, u(ixStart(iGroup)+${p}$))
+                #:endfor
             type is(spectrumPOM)
                 #:for p in range(NPOM)
                 _GET_(self%id_pom${p+1}$, u(ixStart(iGroup)+${p}$))
@@ -135,7 +145,9 @@ contains
             end select
         end do
 
+        ! Lastly, we get the local environmental conditions
         _GET_(self%id_no3, u(idxN))
+        _GET_(self%id_si, u(idxSi))
         _GET_(self%id_doc, u(idxDOC))
         _GET_(self%id_temp, temp)
         _GET_(self%id_par, par)
@@ -143,13 +155,29 @@ contains
         ! Convert photosynthetic radiative flux
         par = par / 0.217_rk ! W m-2 -> uE m-2 s-1
 
+        !---- Calculate rates of change in NUM ----!
+
         mort_mat = 0.0_dp
         call calcDerivatives(u, par, temp, 1.0_dp, dudt, .false., mort_mat)
 
-        _SET_DIAGNOSTIC_(self%id_n2p1, dudt(idxN)/rhoCN) ! for testing
+        !---- Update size based state variables ----!
+        
+        ! First we update generalists as it uses its own index
+        #:for p in range(NGENERALISTS)
+        _ADD_SOURCE_(self%id_p${p+1}$, (real(dudt(idxB+${p}$), kind=rk)/daysec))
+        #:endfor
 
+        ! Then we update other groups where the index is defined in ixStart
         do iGroup = 1, nGroups
             select type(spec => group(iGroup)%spec)
+            type is(spectrumGeneralists)
+                #:for p in range(NGENERALISTS)
+                _ADD_SOURCE_(self%id_p${p+1}$, (real(dudt(ixStart(iGroup)+${p}$), kind=rk)/daysec))
+                #:endfor
+            type is(spectrumDiatoms)
+                #:for p in range(NGENERALISTS)
+                _ADD_SOURCE_(self%id_dia${p+1}$, (real(dudt(ixStart(iGroup)+${p}$), kind=rk)/daysec))
+                #:endfor
             type is(spectrumPOM)
                 #:for p in range(NPOM)
                 _ADD_SOURCE_(self%id_pom${p+1}$, (real(dudt(ixStart(iGroup)+${p}$), kind=rk)/daysec))
@@ -167,13 +195,9 @@ contains
             end select
         end do
 
-        #:for p in range(NGENERALISTS)
-        _ADD_SOURCE_(self%id_p${p+1}$, (real(dudt(idxB+${p}$), kind=rk)/daysec))
-        #:endfor
-        ! #:for p in range(NPOM)
-        ! _ADD_SOURCE_(self%id_pom${p+1}$, (real(dudt(ixStart(idxPOM)+${p}$), kind=rk)/daysec))
-        ! #:endfor
+        ! Lastly, we update the environmental conditions
         _ADD_SOURCE_(self%id_no3, (real(dudt(idxN), kind=rk)/daysec))
+        _ADD_SOURCE_(self%id_si, (real(dudt(idxSi), kind=rk)/daysec))
         _ADD_SOURCE_(self%id_doc, (real(dudt(idxDOC), kind=rk)/daysec))
 
         _LOOP_END_
