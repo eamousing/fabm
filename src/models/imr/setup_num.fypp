@@ -9,5 +9,6 @@
 
 #:set NGENERALISTS = 4
 #:set NPOM = 4
+#:set NCOPEPODS = 4
 
 #:endmute

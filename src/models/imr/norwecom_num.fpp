@@ -22,6 +22,12 @@ module imr_norwecom_num
         #:for p in range(NPOM)
         type(type_state_variable_id) :: id_pom${p+1}$
         #:endfor
+        #:for p in range(NCOPEPODS)
+        type(type_state_variable_id) :: id_acop${p+1}$
+        #:endfor
+        #:for p in range(NCOPEPODS)
+        type(type_state_variable_id) :: id_pcop${p+1}$
+        #:endfor
         type(type_state_variable_id) :: id_no3
         type(type_state_variable_id) :: id_doc
         type(type_state_variable_id) :: id_poc
@@ -58,6 +64,12 @@ contains
         #:for p in range(NPOM)
         call self%register_state_variable(self%id_pom${p+1}$, "pom${p+1}$", "ugC l-1", "Particulate organic matter size group ${p+1}$", minimum = 0.0_rk, initial_value = 10.0_rk)
         #:endfor
+        #:for p in range(NCOPEPODS)
+        call self%register_state_variable(self%id_acop${p+1}$, "acop${p+1}$", "ugC l-1", "Active copepods group ${p+1}$", minimum = 0.0_rk, initial_value = 0.01_rk)
+        #:endfor
+        #:for p in range(NCOPEPODS)
+        call self%register_state_variable(self%id_pcop${p+1}$, "pcop${p+1}$", "ugC l-1", "Passive copepods group ${p+1}$", minimum = 0.0_rk, initial_value = 0.01_rk)
+        #:endfor
         call self%register_state_variable(self%id_no3, "no3", "ugN l-1", "Nitrate concentration", minimum = 0.0_rk, initial_value = 150.0_rk)
         call self%register_state_variable(self%id_doc, "doc", "ugC l-1", "Dissolved organic carbon", minimum = 0.0_rk, initial_value = 150.0_rk)
         call self%register_state_variable(self%id_poc, "poc", "ugC l-1", "Particulate organic matter", minimum = 0.0_rk, initial_value = 10.0_rk)
@@ -70,7 +82,8 @@ contains
         call self%register_diagnostic_variable(self%id_n2p1, "n2p1", "ugN", "nitrogen to p1") ! for testing
 
         ! Initialize unicellular size spectrum
-        call setupGeneralistsPOM(${NGENERALISTS}$, ${NPOM}$, errorio, errorstr)
+        !call setupGeneralistsPOM(${NGENERALISTS}$, ${NPOM}$, errorio, errorstr)
+        call setupNUMmodel(${NGENERALISTS}$, ${NCOPEPODS}$, ${NPOM}$, [1.0_dp], [10.0_dp], errorio, errorstr)
         if (errorio .eqv. .true.) then
             print *, "Error reading parameter ", errorstr
             stop
@@ -86,6 +99,7 @@ contains
 
         real(rk) :: par
         real(rk) :: temp
+        integer :: iGroup
 
         ! count = count + 1
         ! if (mod(count*600, 86400) == 0) print *, count
@@ -98,9 +112,29 @@ contains
         #:for p in range(NGENERALISTS)
         _GET_(self%id_p${p+1}$, u(idxB+${p}$))
         #:endfor
-        #:for p in range(NPOM)
-        _GET_(self%id_pom${p+1}$, u(ixStart(idxPOM)+${p}$))
-        #:endfor
+        ! #:for p in range(NPOM)
+        ! _GET_(self%id_pom${p+1}$, u(ixStart(idxPOM)+${p}$))
+        ! #:endfor
+
+        do iGroup = 1, nGroups
+            select type(spec => group(iGroup)%spec)
+            type is(spectrumPOM)
+                #:for p in range(NPOM)
+                _GET_(self%id_pom${p+1}$, u(ixStart(iGroup)+${p}$))
+                #:endfor
+            type is(spectrumCopepod)
+                if (spec%feedingmode == 1) then
+                    #:for p in range(NCOPEPODS)
+                    _GET_(self%id_pcop${p+1}$, u(ixStart(iGroup)+${p}$))
+                    #:endfor
+                else if (spec%feedingmode == 2) then
+                    #:for p in range(NCOPEPODS)
+                    _GET_(self%id_acop${p+1}$, u(ixStart(iGroup)+${p}$))
+                    #:endfor
+                end if
+            end select
+        end do
+
         _GET_(self%id_no3, u(idxN))
         _GET_(self%id_doc, u(idxDOC))
         _GET_(self%id_temp, temp)
@@ -114,12 +148,31 @@ contains
 
         _SET_DIAGNOSTIC_(self%id_n2p1, dudt(idxN)/rhoCN) ! for testing
 
+        do iGroup = 1, nGroups
+            select type(spec => group(iGroup)%spec)
+            type is(spectrumPOM)
+                #:for p in range(NPOM)
+                _ADD_SOURCE_(self%id_pom${p+1}$, (real(dudt(ixStart(iGroup)+${p}$), kind=rk)/daysec))
+                #:endfor
+            type is(spectrumCopepod)
+                if (spec%feedingmode == 1) then
+                    #:for p in range(NCOPEPODS)
+                    _ADD_SOURCE_(self%id_pcop${p+1}$, (real(dudt(ixStart(iGroup)+${p}$), kind=rk)/daysec))
+                    #:endfor
+                else if (spec%feedingmode == 2) then
+                    #:for p in range(NCOPEPODS)
+                    _ADD_SOURCE_(self%id_acop${p+1}$, (real(dudt(ixStart(iGroup)+${p}$), kind=rk)/daysec))
+                    #:endfor
+                end if
+            end select
+        end do
+
         #:for p in range(NGENERALISTS)
         _ADD_SOURCE_(self%id_p${p+1}$, (real(dudt(idxB+${p}$), kind=rk)/daysec))
         #:endfor
-        #:for p in range(NPOM)
-        _ADD_SOURCE_(self%id_pom${p+1}$, (real(dudt(ixStart(idxPOM)+${p}$), kind=rk)/daysec))
-        #:endfor
+        ! #:for p in range(NPOM)
+        ! _ADD_SOURCE_(self%id_pom${p+1}$, (real(dudt(ixStart(idxPOM)+${p}$), kind=rk)/daysec))
+        ! #:endfor
         _ADD_SOURCE_(self%id_no3, (real(dudt(idxN), kind=rk)/daysec))
         _ADD_SOURCE_(self%id_doc, (real(dudt(idxDOC), kind=rk)/daysec))
 
