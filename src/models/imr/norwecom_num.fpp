@@ -5,7 +5,7 @@ module imr_norwecom_num
 
     use fabm_types
     use globals, only: dp, rhoCN
-    use NUMmodel, only: setupGeneralistsOnly, calcDerivatives, idxN, idxDOC, idxB, nGrid, printRates, group
+    use NUMmodel, only: ixStart, setupGeneralistsPOM, setupGeneralistsOnly, calcDerivatives, idxN, idxDOC, idxPOM, idxB, nGrid, printRates, group
 
     implicit none
 
@@ -18,6 +18,9 @@ module imr_norwecom_num
         #:for p in range(NGROUPS)
         type(type_state_variable_id) :: id_p${p+1}$
         #:endfor
+        #:for p in range(POMGROUPS)
+        type(type_state_variable_id) :: id_pom${p+1}$
+        #:endfor
         type(type_state_variable_id) :: id_no3
         type(type_state_variable_id) :: id_doc
         type(type_state_variable_id) :: id_poc
@@ -25,6 +28,9 @@ module imr_norwecom_num
         ! Dependencies
         type(type_dependency_id) :: id_temp
         type(type_dependency_id) :: id_par
+
+        ! Diagnostic variables
+        type(type_diagnostic_variable_id) :: id_n2p1
     contains
         procedure :: initialize
         procedure :: do
@@ -33,8 +39,11 @@ module imr_norwecom_num
 
     real(dp), allocatable :: u(:)
     real(dp), allocatable :: dudt(:)
+    real(dp), allocatable :: mort_mat(:,:)
     character(len=20) :: errorstr
     logical(1) :: errorio = .false.
+
+    integer, save :: count = 0
 
 contains
 
@@ -45,22 +54,30 @@ contains
         #:for p in range(NGROUPS)
         call self%register_state_variable(self%id_p${p+1}$, "p${p+1}$", "ugC l-1", "Generalist size group ${p+1}$", minimum = 0.0_rk, initial_value = 0.005_rk + 0.01_rk * ${p+1}$)
         #:endfor
+        #:for p in range(POMGROUPS)
+        call self%register_state_variable(self%id_pom${p+1}$, "pom${p+1}$", "ugC l-1", "Particulate organic matter size group ${p+1}$", minimum = 0.0_rk, initial_value = 10.0_rk)
+        #:endfor
         call self%register_state_variable(self%id_no3, "no3", "ugN l-1", "Nitrate concentration", minimum = 0.0_rk, initial_value = 150.0_rk)
-        call self%register_state_variable(self%id_doc, "doc", "ugC l-1", "Dissolved organic carbon", minimum = 0.0_rk, initial_value = 100.0_rk)
+        call self%register_state_variable(self%id_doc, "doc", "ugC l-1", "Dissolved organic carbon", minimum = 0.0_rk, initial_value = 10.0_rk)
         call self%register_state_variable(self%id_poc, "poc", "ugC l-1", "Particulate organic matter", minimum = 0.0_rk, initial_value = 10.0_rk)
 
         ! Dependencies
         call self%register_dependency(self%id_temp, standard_variables%temperature)
         call self%register_dependency(self%id_par, standard_variables%downwelling_photosynthetic_radiative_flux)
 
+        ! Diagnostics
+        call self%register_diagnostic_variable(self%id_n2p1, "n2p1", "ugN", "nitrogen to p1") ! for testing
+
         ! Initialize unicellular size spectrum
-        call setupGeneralistsOnly(${NGROUPS}$, errorio, errorstr)
+        ! call setupGeneralistsOnly(${NGROUPS}$, errorio, errorstr)
+        call setupGeneralistsPOM(${NGROUPS}$, ${POMGROUPS}$, errorio, errorstr)
         if (errorio .eqv. .true.) then
             print *, "Error reading parameter ", errorstr
             stop
         end if
         allocate(u(nGrid))
         allocate(dudt(nGrid))
+        allocate(mort_mat(nGrid,nGrid))
     end subroutine initialize
 
     subroutine do(self, _ARGUMENTS_DO_)
@@ -70,6 +87,9 @@ contains
         real(rk) :: par
         real(rk) :: temp
 
+        count = count + 1
+        if (mod(count*600, 86400) == 0) print *, count
+
         _LOOP_BEGIN_ 
 
         u = 0.0_dp
@@ -77,6 +97,9 @@ contains
         ! Get local concentrations
         #:for p in range(NGROUPS)
         _GET_(self%id_p${p+1}$, u(idxB+${p}$))
+        #:endfor
+        #:for p in range(POMGROUPS)
+        _GET_(self%id_pom${p+1}$, u(ixStart(idxPOM)+${p}$))
         #:endfor
         _GET_(self%id_no3, u(idxN))
         _GET_(self%id_doc, u(idxDOC))
@@ -86,10 +109,16 @@ contains
         ! Convert photosynthetic radiative flux
         par = par / 0.217_rk ! W m-2 -> uE m-2 s-1
 
-        call calcDerivatives(u, par, temp, 1.0_dp, dudt, .false.)
+        mort_mat = 0.0_dp
+        call calcDerivatives(u, par, temp, 1.0_dp, dudt, .false., mort_mat)
+
+        _SET_DIAGNOSTIC_(self%id_n2p1, dudt(idxN)/rhoCN) ! for testing
 
         #:for p in range(NGROUPS)
         _ADD_SOURCE_(self%id_p${p+1}$, (real(dudt(idxB+${p}$), kind=rk)/daysec))
+        #:endfor
+        #:for p in range(POMGROUPS)
+        _ADD_SOURCE_(self%id_pom${p+1}$, (real(dudt(ixStart(idxPOM)+${p}$), kind=rk)/daysec))
         #:endfor
         _ADD_SOURCE_(self%id_no3, (real(dudt(idxN), kind=rk)/daysec))
         _ADD_SOURCE_(self%id_doc, (real(dudt(idxDOC), kind=rk)/daysec))

@@ -1,6 +1,13 @@
 #:mute
 
-#:set DEBUG = defined('DEBUG')
+#:set GENERALISTSSIMPLE = True
+#:set GENERALISTSSIMPLEPARAMS = ["mMinGeneralist", "mMaxGeneralist"]
+
+#:set GENERALISTS = True
+#:set DIATOMSSIMPLE = False
+#:set DIATOMS = False
+
 #:set NGROUPS = 4
+#:set POMGROUPS = 4
 
 #:endmute
