@@ -5,7 +5,8 @@ module imr_norwecom_num
 
     use fabm_types
     use globals, only: dp, rhoCN
-    use NUMmodel, only: ixStart, setupGeneralistsPOM, setupGeneralistsOnly, calcDerivatives, idxN, idxDOC, idxPOM, idxB, nGrid, printRates, group
+    use NUMmodel
+    use POM, only: spectrumPOM
 
     implicit none
 
@@ -15,10 +16,10 @@ module imr_norwecom_num
 
     type, extends(type_base_model), public :: type_imr_norwecom_num
         ! State variables
-        #:for p in range(NGROUPS)
+        #:for p in range(NGENERALISTS)
         type(type_state_variable_id) :: id_p${p+1}$
         #:endfor
-        #:for p in range(POMGROUPS)
+        #:for p in range(NPOM)
         type(type_state_variable_id) :: id_pom${p+1}$
         #:endfor
         type(type_state_variable_id) :: id_no3
@@ -51,14 +52,14 @@ contains
         class(type_imr_norwecom_num), intent(inout), target :: self
         integer, intent(in) :: configunit
         ! State variables
-        #:for p in range(NGROUPS)
+        #:for p in range(NGENERALISTS)
         call self%register_state_variable(self%id_p${p+1}$, "p${p+1}$", "ugC l-1", "Generalist size group ${p+1}$", minimum = 0.0_rk, initial_value = 0.005_rk + 0.01_rk * ${p+1}$)
         #:endfor
-        #:for p in range(POMGROUPS)
+        #:for p in range(NPOM)
         call self%register_state_variable(self%id_pom${p+1}$, "pom${p+1}$", "ugC l-1", "Particulate organic matter size group ${p+1}$", minimum = 0.0_rk, initial_value = 10.0_rk)
         #:endfor
         call self%register_state_variable(self%id_no3, "no3", "ugN l-1", "Nitrate concentration", minimum = 0.0_rk, initial_value = 150.0_rk)
-        call self%register_state_variable(self%id_doc, "doc", "ugC l-1", "Dissolved organic carbon", minimum = 0.0_rk, initial_value = 10.0_rk)
+        call self%register_state_variable(self%id_doc, "doc", "ugC l-1", "Dissolved organic carbon", minimum = 0.0_rk, initial_value = 150.0_rk)
         call self%register_state_variable(self%id_poc, "poc", "ugC l-1", "Particulate organic matter", minimum = 0.0_rk, initial_value = 10.0_rk)
 
         ! Dependencies
@@ -69,8 +70,7 @@ contains
         call self%register_diagnostic_variable(self%id_n2p1, "n2p1", "ugN", "nitrogen to p1") ! for testing
 
         ! Initialize unicellular size spectrum
-        ! call setupGeneralistsOnly(${NGROUPS}$, errorio, errorstr)
-        call setupGeneralistsPOM(${NGROUPS}$, ${POMGROUPS}$, errorio, errorstr)
+        call setupGeneralistsPOM(${NGENERALISTS}$, ${NPOM}$, errorio, errorstr)
         if (errorio .eqv. .true.) then
             print *, "Error reading parameter ", errorstr
             stop
@@ -87,18 +87,18 @@ contains
         real(rk) :: par
         real(rk) :: temp
 
-        count = count + 1
-        if (mod(count*600, 86400) == 0) print *, count
+        ! count = count + 1
+        ! if (mod(count*600, 86400) == 0) print *, count
 
         _LOOP_BEGIN_ 
 
         u = 0.0_dp
 
         ! Get local concentrations
-        #:for p in range(NGROUPS)
+        #:for p in range(NGENERALISTS)
         _GET_(self%id_p${p+1}$, u(idxB+${p}$))
         #:endfor
-        #:for p in range(POMGROUPS)
+        #:for p in range(NPOM)
         _GET_(self%id_pom${p+1}$, u(ixStart(idxPOM)+${p}$))
         #:endfor
         _GET_(self%id_no3, u(idxN))
@@ -114,10 +114,10 @@ contains
 
         _SET_DIAGNOSTIC_(self%id_n2p1, dudt(idxN)/rhoCN) ! for testing
 
-        #:for p in range(NGROUPS)
+        #:for p in range(NGENERALISTS)
         _ADD_SOURCE_(self%id_p${p+1}$, (real(dudt(idxB+${p}$), kind=rk)/daysec))
         #:endfor
-        #:for p in range(POMGROUPS)
+        #:for p in range(NPOM)
         _ADD_SOURCE_(self%id_pom${p+1}$, (real(dudt(ixStart(idxPOM)+${p}$), kind=rk)/daysec))
         #:endfor
         _ADD_SOURCE_(self%id_no3, (real(dudt(idxN), kind=rk)/daysec))
@@ -134,11 +134,22 @@ contains
         class(type_imr_norwecom_num), intent(in) :: self
         _DECLARE_ARGUMENTS_GET_VERTICAL_MOVEMENT_
 
+        integer :: iGroup
+
         _LOOP_BEGIN_
 
-        #:for p in range(NGROUPS)
-        _ADD_VERTICAL_VELOCITY_(self%id_p${p+1}$, (real(group(1)%spec%velocity(${p+1}$), kind=rk)/daysec))
-        #:endfor
+        do iGroup = 1, nGroups
+            select type(spec => group(iGroup)%spec)
+            type is(spectrumGeneralists)
+                #:for p in range(NGENERALISTS)
+                _ADD_VERTICAL_VELOCITY_(self%id_p${p+1}$, -(real(spec%velocity(${p+1}$), kind=rk)/daysec))
+                #:endfor
+            type is(spectrumPOM)
+                #:for p in range(NPOM)
+                _ADD_VERTICAL_VELOCITY_(self%id_pom${p+1}$, -(real(spec%velocity(${p+1}$), kind=rk)/daysec))
+                #:endfor
+            end select
+        end do
 
         _LOOP_END_
     end subroutine get_vertical_movement

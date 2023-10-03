@@ -7,7 +7,7 @@
 #:set DIATOMSSIMPLE = False
 #:set DIATOMS = False
 
-#:set NGROUPS = 4
-#:set POMGROUPS = 4
+#:set NGENERALISTS = 4
+#:set NPOM = 4
 
 #:endmute
