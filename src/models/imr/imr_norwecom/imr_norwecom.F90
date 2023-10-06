@@ -27,12 +27,12 @@ module imr_norwecom
         type(type_state_variable_id) :: id_mes !! Mesozooplankton concentration (mgN m-3)
 
         ! Define bottom biogeochemical state variables
-        type(type_state_variable_id) :: id_botdet !! Bottom nitrogen detritus concentration (mgN m-2)
-        type(type_state_variable_id) :: id_botdetp !! Bottom phosphorus detritus concentration (mgP m-2)
-        type(type_state_variable_id) :: id_botsis !! Bottom biogenic silica concentration (mgSi m-2)
-        type(type_state_variable_id) :: id_burdet !! Burried nitrogen detritus concentration (mgN m-2)
-        type(type_state_variable_id) :: id_burdetp !! Burried phosphorus detritus concentration (mgP m-2)
-        type(type_state_variable_id) :: id_bursis !! Burried biogenic silica concentration (mgSi m-2)
+        type(type_bottom_state_variable_id) :: id_botdet !! Bottom nitrogen detritus concentration (mgN m-2)
+        type(type_bottom_state_variable_id) :: id_botdetp !! Bottom phosphorus detritus concentration (mgP m-2)
+        type(type_bottom_state_variable_id) :: id_botsis !! Bottom biogenic silica concentration (mgSi m-2)
+        type(type_bottom_state_variable_id) :: id_burdet !! Burried nitrogen detritus concentration (mgN m-2)
+        type(type_bottom_state_variable_id) :: id_burdetp !! Burried phosphorus detritus concentration (mgP m-2)
+        type(type_bottom_state_variable_id) :: id_bursis !! Burried biogenic silica concentration (mgSi m-2)
 
         ! Define pelagic environmental dependencies
         type(type_dependency_id) :: id_temp !! Temperature (degC)
