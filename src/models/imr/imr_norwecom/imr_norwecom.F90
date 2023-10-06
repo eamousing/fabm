@@ -116,6 +116,7 @@ module imr_norwecom
         real(rk) :: detp_bul !! Phosphorus detritus burial lower limit (mg m-2)
     contains
         procedure :: initialize
+        procedure :: do_surface
         procedure :: do
         procedure :: get_vertical_movement
         procedure :: get_light_extinction
@@ -204,7 +205,7 @@ contains
         call self%register_state_variable(self%id_sis, "sis", "mgSi m-3", "Biogenic silica concentration", minimum = 0.0_rk, initial_value = 0.1_rk)
         call self%register_state_variable(self%id_det, "det", "mgN m-3", "Nitrogen detritus concentration", minimum = 0.0_rk, initial_value = 0.1_rk)
         call self%register_state_variable(self%id_detp, "detp", "mgP m-3", "Phosphorus detritus concentration", minimum = 0.0_rk, initial_value = 0.1_rk)
-        call self%register_state_variable(self%id_oxy, "oxy", "mgO m-3", "Dissolved oxygen concentration", minimum = 0.0_rk, initial_value = 10.0_rk)
+        call self%register_state_variable(self%id_oxy, "oxy", "mgO l-1", "Dissolved oxygen concentration", minimum = 0.0_rk, initial_value = 10.0_rk)
         call self%register_state_variable(self%id_dia, "dia", "mgN m-3", "Diatoms concentration", minimum = 1e-4_rk, initial_value = 0.1_rk)
         call self%register_state_variable(self%id_fla, "fla", "mgN m-3", "Flagellates concentration", minimum = 1e-4_rk, initial_value = 0.1_rk)
         call self%register_state_variable(self%id_mic, "mic", "mgN m-3", "Microzooplankton concentration", minimum = 1e-4_rk, initial_value = 0.1_rk)
@@ -266,6 +267,46 @@ contains
         end subroutine get_affinities
 
     end subroutine initialize
+
+    subroutine do_surface(self, _ARGUMENTS_DO_SURFACE_)
+        class(type_imr_norwecom), intent(in) :: self
+        _DECLARE_ARGUMENTS_DO_SURFACE_
+
+        ! Local variables
+        real(rk) :: temp, salt, dens, oxy
+        real(rk) :: tempk, pvel, osat, doxy_dt
+
+        ! Local parameters
+        real(rk), parameter :: a(4) = [-173.9894_rk, 255.5907_rk, 146.4813_rk, -22.2040_rk]
+        real(rk), parameter :: b(3) = [-0.037376_rk, 0.016504_rk, -0.0020564_rk]
+        real(rk), parameter :: tkel = 273.15_rk
+
+        _SURFACE_LOOP_BEGIN_
+
+        ! Get local copy of state variables
+        _GET_(self%id_temp, temp)
+        _GET_(self%id_salt, salt)
+        _GET_(self%id_dens, dens)
+        _GET_(self%id_oxy, oxy)
+
+        ! Get temperature in Kelvin
+        tempk = temp + tkel
+        tempk = tempk/100.0_rk
+
+        ! Calculate oxygen saturation state
+        osat = exp(a(1) + a(2)/tempk + a(3)*log(tempk) + a(4)*(tempk) &
+            + salt*(b(1) + b(2)*(tempk) + b(3)*tempk*tempk)) ! mol kg-1
+        osat = osat*dens ! mol m-3
+        osat = osat*32.0_rk*1e-3 ! mg m-3
+
+        ! Calculate derivative
+        doxy_dt = (self%p_vel / 86400.0_rk)*(osat - oxy)
+
+        ! Update state variable
+        _ADD_SURFACE_FLUX_(self%id_oxy, doxy_dt)
+
+        _SURFACE_LOOP_END_
+    end subroutine do_surface
 
     subroutine do(self, _ARGUMENTS_DO_)
         !! Performs the pelagic processes of the biogeochemical model
