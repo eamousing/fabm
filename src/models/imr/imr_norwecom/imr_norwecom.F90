@@ -12,7 +12,7 @@ module imr_norwecom
     real(rk), parameter :: eps = 1.0e-12_rk !! Small number to avoid dividing by zero
 
     type, extends(type_base_model), public :: type_imr_norwecom
-
+    
         ! Define pelagic biogeochemical state variables
         type(type_state_variable_id) :: id_nit !! Nitrate concentration (mgN m-3)
         type(type_state_variable_id) :: id_pho !! Phosphate concentration (mgP m-3)
@@ -378,6 +378,9 @@ contains
         ! Calculate derivatives
 
         ! Nitrate
+        if (nit > 8000.0_rk) then
+            print *, nit, dnit_dt
+        end if
         dnit_dt = 0.0_rk
         dnit_dt = dnit_dt &
             + self%cc4*det & ! Remineralization
@@ -475,7 +478,7 @@ contains
         dmes_dt = dmes_dt &
             + self%beta*mes_growth_dia*mes & ! Assimilated from diatom predation
             + self%beta*mes_growth_mic*mes & ! Assimilated from microzooplankton predation
-            + self%beta*mes_growth_det*det & ! Assimilated from detritus predation
+            + self%beta*mes_growth_det*mes & ! Assimilated from detritus predation
             - mes_resp*mes & ! Mesozooplankton respiration loss
             - mes_mort*mes ! Mesozooplankton mortality loss
 
@@ -484,6 +487,7 @@ contains
         dmic_dt = dmic_dt &
             + self%beta*mic_growth_fla*mic & ! Assimilated from flagellates predation
             + self%beta*mic_growth_det*mic & ! Assimilated from detritus predation
+            - mes_growth_mic*mes &
             - mic_resp*mic & ! Microzooplankton respiration loss
             - mic_mort*mic ! Microzooplankton mortality
 
