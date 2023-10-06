@@ -118,6 +118,7 @@ module imr_norwecom
         procedure :: initialize
         procedure :: do_surface
         procedure :: do
+        procedure :: do_bottom
         procedure :: get_vertical_movement
         procedure :: get_light_extinction
     end type
@@ -269,6 +270,7 @@ contains
     end subroutine initialize
 
     subroutine do_surface(self, _ARGUMENTS_DO_SURFACE_)
+        !! Performs surface processes
         class(type_imr_norwecom), intent(in) :: self
         _DECLARE_ARGUMENTS_DO_SURFACE_
 
@@ -277,6 +279,8 @@ contains
         real(rk) :: tempk, pvel, osat, doxy_dt
 
         ! Local parameters
+        ! Kester, D.R.,1975. Dissolved gases other than CO2. In: Riley, J.P. and G. Skirrow (eds), 
+        ! Chemical Oceanography, 2.nd ed., Vol. 1, Academic Press, New York.
         real(rk), parameter :: a(4) = [-173.9894_rk, 255.5907_rk, 146.4813_rk, -22.2040_rk]
         real(rk), parameter :: b(3) = [-0.037376_rk, 0.016504_rk, -0.0020564_rk]
         real(rk), parameter :: tkel = 273.15_rk
@@ -578,6 +582,49 @@ contains
         end function tfac
 
     end subroutine do
+
+    subroutine do_bottom(self, _ARGUMENTS_DO_BOTTOM_)
+        class(type_imr_norwecom), intent(in) :: self
+        _DECLARE_ARGUMENTS_DO_BOTTOM_
+
+        ! Local variables
+        real(rk) :: bstress, detspd, sisspd
+        real(rk) :: botdet, botdetp, botsis, burdet, burdetp, bursis
+        real(rk) :: det, detp, sis
+
+        _BOTTOM_LOOP_BEGIN_
+
+        ! Get local copy of state variables
+        _GET_HORIZONTAL_(self%id_bstress, bstress)
+        _GET_HORIZONTAL_(self%id_botdet, botdet)
+        _GET_HORIZONTAL_(self%id_botdetp, botdetp)
+        _GET_HORIZONTAL_(self%id_botsis, botsis)
+        _GET_HORIZONTAL_(self%id_burdet, burdet)
+        _GET_HORIZONTAL_(self%id_burdetp, burdetp)
+        _GET_HORIZONTAL_(self%id_bursis, bursis)
+        _GET_(self%id_det, det)
+        _GET_(self%id_detp, detp)
+        _GET_(self%id_sis, sis)
+
+        ! Set sedimentation/resuspension rate according to bottom stress
+        if (bstress < self%tau1) then ! Sedimentation
+            detspd = self%sr_det
+            sisspd = self%sr_sis
+        else
+            detspd = 0.0_rk
+            sisspd = 0.0_rk
+        end if
+
+        ! Update state variables
+        _ADD_BOTTOM_FLUX_(self%id_det, -detspd*det)
+        _ADD_BOTTOM_FLUX_(self%id_detp, -detspd*detp)
+        _ADD_BOTTOM_FLUX_(self%id_sis, -sisspd*sis)
+        _ADD_BOTTOM_SOURCE_(self%id_botdet, detspd*det)
+        _ADD_BOTTOM_SOURCE_(self%id_botdetp, detspd*detp)
+        _ADD_BOTTOM_SOURCE_(self%id_botsis, sisspd*sis)
+
+        _BOTTOM_LOOP_END_
+    end subroutine do_bottom
 
     subroutine get_vertical_movement(self, _ARGUMENTS_GET_VERTICAL_MOVEMENT_)
         !! Sets the sinking speed
