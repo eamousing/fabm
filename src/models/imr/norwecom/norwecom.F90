@@ -9,7 +9,6 @@ module imr_norwecom
     private
 
     ! Global parameters
-    real(rk), parameter :: daysec = 86400.0_rk !! Number of seconds per day
     real(rk), parameter :: eps = 1.0e-12_rk !! Small number to avoid dividing by zero
 
     type, extends(type_base_model), public :: type_imr_norwecom
@@ -118,6 +117,8 @@ module imr_norwecom
     contains
         procedure :: initialize
         procedure :: do
+        procedure :: get_vertical_movement
+        procedure :: get_light_extinction
     end type
 
 contains
@@ -275,11 +276,12 @@ contains
         real(rk) :: temp, nit, pho, sil, sis, det, detp, oxy, dia, fla, par, mes, mic
         real(rk) :: u_max, par_lim, nit_lim, pho_lim, sil_lim
         real(rk) :: dia_growth, dia_resp, dia_mort, fla_growth, fla_resp, fla_mort
-        real(rk) :: gpp, npp, chla, gsp, gnp
+        real(rk) :: gpp, npp, chla, gsp, nsp
         real(rk) :: denum, p11, p12, p13, p21, p22, tmp
         real(rk) :: mes_growth_dia, mes_growth_mic, mes_growth_det, mes_loss, mes_resp, mes_mort
         real(rk) :: mic_growth_fla, mic_growth_det, mic_loss, mic_resp, mic_mort
-        real(rk) :: dndt, dpdt, dsdt
+        real(rk) :: dnit_dt, dpho_dt, dsil_dt, dsis_dt, ddet_dt, ddetp_dt, doxy_dt
+        real(rk) :: ddia_dt, dfla_dt, dmes_dt, dmic_dt
 
         _LOOP_BEGIN_
 
@@ -334,11 +336,6 @@ contains
             fla_mort = 0.0_rk
         end if
 
-        ! Calculate primary production and chlorophyll a concentration
-        gpp = self%scc2*(dia_growth*dia + fla_growth*fla) ! Gross primary production
-        npp = gpp - self%scc2*(dia_resp*dia + fla_resp*fla) ! Net primary production
-        chla = (dia + fla)/self%n2chla ! Chlorophyll a concentration
-
         ! Mesozooplankton
         denum = self%pi11*dia + self%pi12*mic + self%pi13*det + eps ! Total prey concentration
         p11 = self%pi11*dia/denum ! Diatom prey concentration
@@ -364,6 +361,19 @@ contains
         mic_loss = self%mju2*(mic/(mic + self%cnit*self%k6)) ! Microzooplankton total loss
         mic_resp = (1.0_rk - self%delta)*mic_loss ! Microzooplankton respiration loss
         mic_mort = self%delta*mic_loss ! Microzooplankton mortality loss
+
+        ! Calculate diagnostic variables
+        gpp = self%scc2*(dia_growth*dia + fla_growth*fla) ! Gross primary production
+        npp = gpp - self%scc2*(dia_resp*dia + fla_resp*fla) ! Net primary production
+        gsp = self%scc2*(self%beta*mes_growth_dia*mes & ! Gross secondary production
+            + self%beta*mes_growth_mic*mes &
+            + self%beta*mes_growth_det*mes &
+            + self%beta*mic_growth_fla*mic &
+            + self%beta*mic_growth_det*mic)
+        nsp = gsp & ! Net secondary production
+            - self%scc2*(mes_resp*mes &
+            + mic_resp*mic)
+        chla = (dia + fla)/self%n2chla ! Chlorophyll a concentration
 
         ! Calculate derivatives
 
@@ -410,21 +420,92 @@ contains
         ! Nitrogen detritus
         ddet_dt = 0.0_rk
         ddet_dt = ddet_dt &
-            + 0.9_rk*dia_mort*dia &
-            + 0.9_rk*fla_mort*fla &
-            + mes_mort*mes &
-            + mic_mort*mic &
-            
+            + 0.9_rk*dia_mort*dia & ! Diatoms mortality (90% is converted to nitrogen detritus)
+            + 0.9_rk*fla_mort*fla & ! Flagellates mortality (90% is converted to nitrogen detritus)
+            + mes_mort*mes & ! Mesozooplankton mortality
+            + mic_mort*mic & ! Microzooplankton mortality
+            + (1.0_rk - self%beta)*mes_growth_dia*mes & ! Mesozooplankton assimilation loss from diatoms
+            + (1.0_rk - self%beta)*mes_growth_mic*mes & ! Mesozooplankton assimilation loss from microzooplankton
+            + (1.0_rk - self%beta)*mes_growth_det*mes & ! Mesozooplankton assimilation loss from detritus
+            + (1.0_rk - self%beta)*mic_growth_fla*mic & ! Microzooplankton assimilation loss from flagellates
+            + (1.0_rk - self%beta)*mic_growth_det*mic & ! Microzooplankton assimilation loss from detritus
+            - mes_growth_det*mes & ! Mesozooplankton predation on detritus
+            - mic_growth_det*mic & ! Microzooplankton predation on detritus
+            - self%cc4*det ! Remineralization
 
         ! Phosphorus detritus
-        
+        ddetp_dt = 0.0_rk
+        ddetp_dt = ddetp_dt &
+            + self%cc1*(0.75_rk*dia_mort*dia & ! Diatoms mortality (75% is converted to phosphorus detritus)
+            + 0.75_rk*fla_mort*fla & ! Flagellates mortality (75% is converted to phosphorus detritus)
+            + mes_mort*mes & ! Mesozooplankton mortality
+            + mic_mort*mic & ! Microzooplankton mortality
+            + (1.0_rk - self%beta)*mes_growth_dia*mes & ! Mesozooplankton assimilation loss from diatoms
+            + (1.0_rk - self%beta)*mes_growth_mic*mes & ! Mesozooplankton assimilation loss from microzooplankton
+            + (1.0_rk - self%beta)*mes_growth_det*mes & ! Mesozooplankton assimilation loss from detritus
+            + (1.0_rk - self%beta)*mic_growth_fla*mic & ! Microzooplankton assimilation loss from flagellates
+            + (1.0_rk - self%beta)*mic_growth_det*mic & ! Microzooplankton assimilation loss from detritus
+            - mes_growth_det*mes & ! Mesozooplankton predation on detritus
+            - mic_growth_det*mic) & ! Microzooplankton predation on detritus
+            - self%cc4*detp ! Remineralization
+
+        ! Oxygen
+        doxy_dt = 0.0_rk
+        doxy_dt = doxy_dt &
+            + self%scc1*dnit_dt ! Contant O/N ratio
+            
         ! Diatoms
+        ddia_dt = 0.0_rk
+        ddia_dt = ddia_dt &
+            + dia_growth*dia & ! Diatoms gross growth
+            - dia_resp*dia & ! Diatoms respiration loss
+            - dia_mort*dia & ! Diatoms mortality loss
+            - mes_growth_dia*mes ! Diatoms predation loss from mesozooplankton
 
         ! Flagellates
+        dfla_dt = 0.0_rk
+        dfla_dt = dfla_dt &
+            + fla_growth*fla & ! Flagellates gross growth
+            - fla_resp*fla & ! Flagellates respiration
+            - fla_mort*fla & ! Flagellates mortality
+            - mic_growth_fla*mic ! Flagellates predation loss from microzooplankton
 
         ! Mesozooplankton
+        dmes_dt = 0.0_rk
+        dmes_dt = dmes_dt &
+            + self%beta*mes_growth_dia*mes & ! Assimilated from diatom predation
+            + self%beta*mes_growth_mic*mes & ! Assimilated from microzooplankton predation
+            + self%beta*mes_growth_det*det & ! Assimilated from detritus predation
+            - mes_resp*mes & ! Mesozooplankton respiration loss
+            - mes_mort*mes ! Mesozooplankton mortality loss
 
         ! Microzooplankton
+        dmic_dt = 0.0_rk
+        dmic_dt = dmic_dt &
+            + self%beta*mic_growth_fla*mic & ! Assimilated from flagellates predation
+            + self%beta*mic_growth_det*mic & ! Assimilated from detritus predation
+            - mic_resp*mic & ! Microzooplankton respiration loss
+            - mic_mort*mic ! Microzooplankton mortality
+
+        ! Update state variables
+        _ADD_SOURCE_(self%id_nit, dnit_dt)
+        _ADD_SOURCE_(self%id_pho, dpho_dt)
+        _ADD_SOURCE_(self%id_sil, dsil_dt)
+        _ADD_SOURCE_(self%id_sis, dsis_dt)
+        _ADD_SOURCE_(self%id_det, ddet_dt)
+        _ADD_SOURCE_(self%id_detp, ddetp_dt)
+        _ADD_SOURCE_(self%id_oxy, doxy_dt)
+        _ADD_SOURCE_(self%id_dia, ddia_dt)
+        _ADD_SOURCE_(self%id_fla, dfla_dt)
+        _ADD_SOURCE_(self%id_mes, dmes_dt)
+        _ADD_SOURCE_(self%id_mic, dmic_dt)
+
+        ! Update diagnostic variables
+        _SET_DIAGNOSTIC_(self%id_gpp, gpp)
+        _SET_DIAGNOSTIC_(self%id_npp, npp)
+        _SET_DIAGNOSTIC_(self%id_gsp, gsp)
+        _SET_DIAGNOSTIC_(self%id_nsp, nsp)
+        _SET_DIAGNOSTIC_(self%id_chla, chla)
 
         _LOOP_END_
 
@@ -447,10 +528,76 @@ contains
         function tfac(te) result(t_dep)
             !! Returns the temperature dependence on zooplankton growth
             real(rk), intent(in) :: te !! Temperature (degC)
-            real(rk) :: t_dep
+            real(rk) :: t_dep !! Temperature dependency scalar
             t_dep = self%q10**((te - 10.0_rk)/10.0_rk)
         end function tfac
 
     end subroutine do
+
+    subroutine get_vertical_movement(self, _ARGUMENTS_GET_VERTICAL_MOVEMENT_)
+        !! Sets the sinking speed
+        class(type_imr_norwecom), intent(in) :: self !! NORWECOM model class
+        _DECLARE_ARGUMENTS_GET_VERTICAL_MOVEMENT_
+
+        ! Local variables
+        real(rk) :: sil, dia, fla
+        real(rk) :: vdia, vfla
+
+        _LOOP_BEGIN_
+
+        ! Get local copy of the state variables
+        _GET_(self%id_sil, sil)
+        _GET_(self%id_dia, dia)
+        _GET_(self%id_fla, fla)
+
+        ! Adjust diatoms sinking speed according to silicate concentration
+        if ((sil / self%cnit) < self%sib) then
+            vdia = self%sr_dia_max
+        else
+            vdia = self%sr_dia_min + (self%sr_dia_max - self%sr_dia_min)/(sil/self%csil)
+        end if
+
+        ! Constrain sinking if concentrations are too low
+        if (dia < self%dia_min) then
+            vdia = 0.0_rk
+        end if
+        if (fla < self%fla_min) then
+            vfla = 0.0_rk
+        else
+            vfla = self%sr_fla
+        end if
+
+        ! Update sinking speeds
+        _SET_VERTICAL_MOVEMENT_(self%id_dia, -vdia)
+        _SET_VERTICAL_MOVEMENT_(self%id_fla, -vfla)
+        _SET_VERTICAL_MOVEMENT_(self%id_det, -self%sr_det)
+        _SET_VERTICAL_MOVEMENT_(self%id_detp, -self%sr_det)
+        _SET_VERTICAL_MOVEMENT_(self%id_sis, -self%sr_sis)
+
+        _LOOP_END_
+    end subroutine get_vertical_movement
+
+    subroutine get_light_extinction(self, _ARGUMENTS_GET_EXTINCTION_)
+        !! Sets the light extinction coefficient
+        class(type_imr_norwecom), intent(in) :: self
+        _DECLARE_ARGUMENTS_GET_EXTINCTION_
+
+        ! Local variables
+        real(rk) :: dia, fla, my_extinction
+
+        _LOOP_BEGIN_
+
+        ! Get local copy of state variables
+        _GET_(self%id_dia, dia)
+        _GET_(self%id_fla, fla)
+
+        ! Calculate extinction from chlorophyll a
+        my_extinction = self%v*((dia + fla)/self%n2chla)
+
+        ! Update extinction
+        _SET_EXTINCTION_(my_extinction)
+
+        _LOOP_END_
+    end subroutine get_light_extinction
 
 end module imr_norwecom
