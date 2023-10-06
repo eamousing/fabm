@@ -205,7 +205,7 @@ contains
         call self%register_state_variable(self%id_sis, "sis", "mgSi m-3", "Biogenic silica concentration", minimum = 0.0_rk, initial_value = 0.1_rk)
         call self%register_state_variable(self%id_det, "det", "mgN m-3", "Nitrogen detritus concentration", minimum = 0.0_rk, initial_value = 0.1_rk)
         call self%register_state_variable(self%id_detp, "detp", "mgP m-3", "Phosphorus detritus concentration", minimum = 0.0_rk, initial_value = 0.1_rk)
-        call self%register_state_variable(self%id_oxy, "oxy", "mgO l-1", "Dissolved oxygen concentration", minimum = 0.0_rk, initial_value = 10.0_rk)
+        call self%register_state_variable(self%id_oxy, "oxy", "mgO m-3", "Dissolved oxygen concentration", minimum = 0.0_rk, initial_value = 10.0_rk)
         call self%register_state_variable(self%id_dia, "dia", "mgN m-3", "Diatoms concentration", minimum = 1e-4_rk, initial_value = 0.1_rk)
         call self%register_state_variable(self%id_fla, "fla", "mgN m-3", "Flagellates concentration", minimum = 1e-4_rk, initial_value = 0.1_rk)
         call self%register_state_variable(self%id_mic, "mic", "mgN m-3", "Microzooplankton concentration", minimum = 1e-4_rk, initial_value = 0.1_rk)
