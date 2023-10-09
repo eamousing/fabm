@@ -37,11 +37,11 @@ module imr_norwecom
         ! Define pelagic environmental dependencies
         type(type_dependency_id) :: id_temp !! Temperature (degC)
         type(type_dependency_id) :: id_salt !! Salinity (practical)
-        type(type_dependency_id) :: id_dens !! Water density
+        type(type_dependency_id) :: id_dens !! Sea water density (kg m-3)
         type(type_dependency_id) :: id_par !! Photoactive radiation (W m-2)
 
         ! Define bottom environmental dependences
-        type(type_horizontal_dependency_id) :: id_bstress !! Bottom stress
+        type(type_horizontal_dependency_id) :: id_bstress !! Bottom stress (Pa)
 
         ! Define pelagic diagnostic variables
         type(type_diagnostic_variable_id) :: id_chla !! Chlorophyll a concentration (mgChla m-3)
@@ -49,6 +49,7 @@ module imr_norwecom
         type(type_diagnostic_variable_id) :: id_npp !! Net primary production (mgC m-3 s-1)
         type(type_diagnostic_variable_id) :: id_gsp !! Gross secondary production (mgC m-3 s-1)
         type(type_diagnostic_variable_id) :: id_nsp !! Net secondary production (mgC m-3 s-1)
+        type(type_diagnostic_variable_id) :: id_oxy2 !! Oxygen concentration (umol kg-1)
         
         ! Define model parameters
         real(rk) :: cnit !! Nitrogen atomic weight (g mol-1)
@@ -235,6 +236,7 @@ contains
         call self%register_diagnostic_variable(self%id_npp, "npp", "mgC m-3 s-1", "Net primary production")
         call self%register_diagnostic_variable(self%id_gsp, "gsp", "mgC m-3 s-1", "Gross secondary production")
         call self%register_diagnostic_variable(self%id_nsp, "nsp", "mgC m-3 s-1", "Net secondary production")
+        call self%register_diagnostic_variable(self%id_oxy2, "oxy2", "umol kg-1", "Oxygen concentration")
     
         ! Initialize aggregated variables
         call self%add_to_aggregate_variable(standard_variables%total_nitrogen, self%id_nit)
@@ -327,6 +329,7 @@ contains
         real(rk) :: mic_growth_fla, mic_growth_det, mic_loss, mic_resp, mic_mort
         real(rk) :: dnit_dt, dpho_dt, dsil_dt, dsis_dt, ddet_dt, ddetp_dt, doxy_dt
         real(rk) :: ddia_dt, dfla_dt, dmes_dt, dmic_dt
+        real(rk) :: oxy2, dens
 
         _LOOP_BEGIN_
 
@@ -344,6 +347,7 @@ contains
         _GET_(self%id_par, par)
         _GET_(self%id_mes, mes)
         _GET_(self%id_mic, mic)
+        _GET_(self%id_dens, dens)
 
         ! Convert PAR
         par = par / 0.217_rk ! W m-2 -> uE m-2 s-1
@@ -393,7 +397,12 @@ contains
         mes_growth_det = tmp*p13*det ! Detritus eaten by mesozooplankton
         mes_loss = self%mju2*(mes/(mes + self%cnit*self%k6)) ! Mesozooplankton total loss rate
         mes_resp = (1.0_rk - self%delta)*mes_loss ! Mesozooplankton respiration loss rate
-        mes_mort = self%delta*mes_loss ! Mesozooplankton mortality loss        
+        mes_mort = self%delta*mes_loss ! Mesozooplankton mortality loss
+        
+        ! Contrain predation on diatoms if dia < dia_min
+        if (dia < self%dia_min) then
+            mes_growth_dia = 0.0_rk
+        end if
 
         ! Microzooplankton
         denum = self%pi21*fla + self%pi22*det + eps ! Total prey concentration
@@ -407,6 +416,11 @@ contains
         mic_resp = (1.0_rk - self%delta)*mic_loss ! Microzooplankton respiration loss
         mic_mort = self%delta*mic_loss ! Microzooplankton mortality loss
 
+        ! Contrain predation on flagellates if fla < fla_min
+        if (fla < self%fla_min) then
+            mic_growth_fla = 0.0_rk
+        end if
+
         ! Calculate diagnostic variables
         gpp = self%scc2*(dia_growth*dia + fla_growth*fla) ! Gross primary production
         npp = gpp - self%scc2*(dia_resp*dia + fla_resp*fla) ! Net primary production
@@ -419,6 +433,7 @@ contains
             - self%scc2*(mes_resp*mes &
             + mic_resp*mic)
         chla = (dia + fla)/self%n2chla ! Chlorophyll a concentration
+        oxy2 = ((oxy/32.0_rk)/dens)*1000.0_rk ! Oxygen concentration in umol kg-1
 
         ! Calculate derivatives
 
@@ -500,7 +515,7 @@ contains
         ! Oxygen
         doxy_dt = 0.0_rk
         doxy_dt = doxy_dt &
-            + self%scc1*dnit_dt ! Contant O/N ratio
+            - self%scc1*dnit_dt ! Contant O/N ratio
             
         ! Diatoms
         ddia_dt = 0.0_rk
@@ -555,6 +570,7 @@ contains
         _SET_DIAGNOSTIC_(self%id_gsp, gsp)
         _SET_DIAGNOSTIC_(self%id_nsp, nsp)
         _SET_DIAGNOSTIC_(self%id_chla, chla)
+        _SET_DIAGNOSTIC_(self%id_oxy2, oxy2)
 
         _LOOP_END_
 
@@ -591,6 +607,9 @@ contains
         real(rk) :: bstress, detspd, sisspd
         real(rk) :: botdet, botdetp, botsis, burdet, burdetp, bursis
         real(rk) :: det, detp, sis
+        real(rk) :: ddet_dt, ddetp_dt, dsis_dt
+        real(rk) :: dbotdet_dt, dbotdetp_dt, dbotsis_dt
+        real(rk) :: dburdet_dt, dburdetp_dt, dbursis_dt
 
         _BOTTOM_LOOP_BEGIN_
 
@@ -615,13 +634,27 @@ contains
             sisspd = 0.0_rk
         end if
 
+        ! Calculate derivatives
+        ddet_dt = detspd*det
+        ddetp_dt = detspd*detp
+        dsis_dt = sisspd*sis
+        dburdet_dt = self%scc8*max(0.0_rk, botdet - self%det_bul)
+        dburdetp_dt = self%scc8*max(0.0_rk, botdetp - self%detp_bul)
+        dbursis_dt = self%scc8*max(0.0_rk, botsis - self%sis_bul)
+        dbotdet_dt = ddet_dt - dburdet_dt
+        dbotdetp_dt = ddetp_dt - dburdetp_dt
+        dbotsis_dt = dsis_dt - dbursis_dt
+
         ! Update state variables
-        _ADD_BOTTOM_FLUX_(self%id_det, -detspd*det)
-        _ADD_BOTTOM_FLUX_(self%id_detp, -detspd*detp)
-        _ADD_BOTTOM_FLUX_(self%id_sis, -sisspd*sis)
-        _ADD_BOTTOM_SOURCE_(self%id_botdet, detspd*det)
-        _ADD_BOTTOM_SOURCE_(self%id_botdetp, detspd*detp)
-        _ADD_BOTTOM_SOURCE_(self%id_botsis, sisspd*sis)
+        _ADD_BOTTOM_FLUX_(self%id_det, -ddet_dt)
+        _ADD_BOTTOM_FLUX_(self%id_detp, -ddetp_dt)
+        _ADD_BOTTOM_FLUX_(self%id_sis, -dsis_dt)
+        _ADD_BOTTOM_SOURCE_(self%id_botdet, dbotdet_dt)
+        _ADD_BOTTOM_SOURCE_(self%id_botdetp, dbotdetp_dt)
+        _ADD_BOTTOM_SOURCE_(self%id_botsis, dbotsis_dt)
+        _ADD_BOTTOM_SOURCE_(self%id_burdet, dburdet_dt)
+        _ADD_BOTTOM_SOURCE_(self%id_burdetp, dburdetp_dt)
+        _ADD_BOTTOM_SOURCE_(self%id_bursis, dbursis_dt)
 
         _BOTTOM_LOOP_END_
     end subroutine do_bottom
