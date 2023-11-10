@@ -50,6 +50,9 @@ module imr_norwecom
         type(type_diagnostic_variable_id) :: id_gsp !! Gross secondary production (mgC m-3 s-1)
         type(type_diagnostic_variable_id) :: id_nsp !! Net secondary production (mgC m-3 s-1)
         type(type_diagnostic_variable_id) :: id_oxy2 !! Oxygen concentration (umol kg-1)
+
+        ! Define surface diagnostic variables
+        type(type_surface_diagnostic_variable_id) :: id_doxy
         
         ! Define model parameters
         real(rk) :: cnit !! Nitrogen atomic weight (g mol-1)
@@ -237,6 +240,9 @@ contains
         call self%register_diagnostic_variable(self%id_gsp, "gsp", "mgC m-3 s-1", "Gross secondary production")
         call self%register_diagnostic_variable(self%id_nsp, "nsp", "mgC m-3 s-1", "Net secondary production")
         call self%register_diagnostic_variable(self%id_oxy2, "oxy2", "umol kg-1", "Oxygen concentration")
+
+        ! Initialize horizontal diagnostic variables
+        call self%register_surface_diagnostic_variable(self%id_doxy, "doxy", "mg m-2 s-1", "Oxygen air-sea exchange")
     
         ! Initialize aggregated variables
         call self%add_to_aggregate_variable(standard_variables%total_nitrogen, self%id_nit)
@@ -307,6 +313,7 @@ contains
 
         ! Calculate derivative
         doxy_dt = (self%p_vel / 86400.0_rk)*(osat - oxy)
+        _SET_SURFACE_DIAGNOSTIC_(self%id_doxy, doxy_dt)
 
         ! Update state variable
         _ADD_SURFACE_FLUX_(self%id_oxy, doxy_dt)
