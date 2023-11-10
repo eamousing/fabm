@@ -25,6 +25,7 @@ module imr_norwecom
         type(type_state_variable_id) :: id_fla !! Flagellates concentration (mgN m-3)
         type(type_state_variable_id) :: id_mic !! Microzooplankton concentration (mgN m-3)
         type(type_state_variable_id) :: id_mes !! Mesozooplankton concentration (mgN m-3)
+        type(type_state_variable_id) :: id_dsnk !! Detritus dynamic sinking speed tracer
 
         ! Define bottom biogeochemical state variables
         type(type_bottom_state_variable_id) :: id_botdet !! Bottom nitrogen detritus concentration (mgN m-2)
@@ -50,6 +51,7 @@ module imr_norwecom
         type(type_diagnostic_variable_id) :: id_gsp !! Gross secondary production (mgC m-3 s-1)
         type(type_diagnostic_variable_id) :: id_nsp !! Net secondary production (mgC m-3 s-1)
         type(type_diagnostic_variable_id) :: id_oxy2 !! Oxygen concentration (umol kg-1)
+        type(type_diagnostic_variable_id) :: id_snkspd !! Detritus average sinking speed (m d-1)
 
         ! Define surface diagnostic variables
         type(type_surface_diagnostic_variable_id) :: id_doxy
@@ -118,6 +120,11 @@ module imr_norwecom
         real(rk) :: det_max !! Detritus concentration corresponding to maximum nitrogen flux (mg m-2)
         real(rk) :: sis_bul !! Biogenic silica burial lower limit (mg m-2)
         real(rk) :: detp_bul !! Phosphorus detritus burial lower limit (mg m-2)
+        real(rk) :: sr_dia2det !! Sinking speed of detritus comming from diatoms (m s-1)
+        real(rk) :: sr_fla2det !! Sinking speed of detritus comming from flagellates (m s-1)
+        real(rk) :: sr_mic2det !! Sinking speed of detritus comming from microzooplankton (m s-1)
+        real(rk) :: sr_mes2det !! Sinking speed of detritus comming from mesozooplankton (m s-1)
+        logical :: use_dsnk !! Use detritus dynamic sinking speed
     contains
         procedure :: initialize
         procedure :: do_surface
@@ -202,6 +209,11 @@ contains
         call self%get_parameter(self%det_max, "mg m-2", "Detritus concentration corresponding to maximum nitrogen flux", default = 1.0e5_rk)
         call self%get_parameter(self%sis_bul, "mg m-2", "Biogenic silica burial lower limit", default = 1100.0_rk)
         call self%get_parameter(self%detp_bul, "mg m-2", "Phosphorus detritus burial lower limit", default = 63.0_rk)
+        call self%get_parameter(self%use_dsnk, "use_dsnk", "", "Use detritus dynamic sinking speed", default = .false.)
+        call self%get_parameter(self%sr_dia2det, "sr_dia2det", "m s-1", "Sinking speed of detritus comming from diatoms", default = 0.00005787_rk)
+        call self%get_parameter(self%sr_fla2det, "sr_fla2det", "m s-1", "Sinking speed of detritus comming from flagellates", default = 0.00001157_rk)
+        call self%get_parameter(self%sr_mic2det, "sr_mic2det", "m s-1", "Sinking speed of detritus comming from microzooplankton", default = 0.00002315_rk)
+        call self%get_parameter(self%sr_mes2det, "sr_mes2det", "m s-1", "Sinking speed of detritus comming from mesozooplankton", default = 0.00005787_rk)
         
         ! Initialize pelagic biogeochemical state variables
         call self%register_state_variable(self%id_nit, "nit", "mgN m-3", "Nitrate concentration", minimum = 0.0_rk, initial_value = 168.0_rk)
@@ -215,6 +227,7 @@ contains
         call self%register_state_variable(self%id_fla, "fla", "mgN m-3", "Flagellates concentration", minimum = 1e-4_rk, initial_value = 0.1_rk)
         call self%register_state_variable(self%id_mic, "mic", "mgN m-3", "Microzooplankton concentration", minimum = 1e-4_rk, initial_value = 0.1_rk)
         call self%register_state_variable(self%id_mes, "mes", "mgN m-3", "Mesozooplankton concentration", minimum = 1e-4_rk, initial_value = 0.1_rk)
+        call self%register_state_variable(self%id_dsnk, "dsnk", "", "Detritus dynamic sinking speed tracer", minimum = 0.0_rk, initial_value = 0.00003_rk)
         
         ! Initialize bottom biogeochemical variables
         call self%register_state_variable(self%id_botdet, "botdet", "mgN m-2", "Bottom nitrogen detritus concentration", minimum = 1e-4_rk, initial_value = 0.1_rk)
@@ -240,6 +253,7 @@ contains
         call self%register_diagnostic_variable(self%id_gsp, "gsp", "mgC m-3 s-1", "Gross secondary production")
         call self%register_diagnostic_variable(self%id_nsp, "nsp", "mgC m-3 s-1", "Net secondary production")
         call self%register_diagnostic_variable(self%id_oxy2, "oxy2", "umol kg-1", "Oxygen concentration")
+        call self%register_diagnostic_variable(self%id_snkspd, "snkspd", "m d-1", "Detritus average sinking speed")
 
         ! Initialize horizontal diagnostic variables
         call self%register_surface_diagnostic_variable(self%id_doxy, "doxy", "mg m-2 s-1", "Oxygen air-sea exchange")
@@ -337,6 +351,7 @@ contains
         real(rk) :: dnit_dt, dpho_dt, dsil_dt, dsis_dt, ddet_dt, ddetp_dt, doxy_dt
         real(rk) :: ddia_dt, dfla_dt, dmes_dt, dmic_dt
         real(rk) :: oxy2, dens
+        real(rk) :: dsnk, ddsnk_dt
 
         _LOOP_BEGIN_
 
@@ -355,6 +370,7 @@ contains
         _GET_(self%id_mes, mes)
         _GET_(self%id_mic, mic)
         _GET_(self%id_dens, dens)
+        _GET_(self%id_dsnk, dsnk)
 
         ! Convert PAR
         par = par / 0.217_rk ! W m-2 -> uE m-2 s-1
@@ -441,6 +457,24 @@ contains
             + mic_resp*mic)
         chla = (dia + fla)/self%n2chla ! Chlorophyll a concentration
         oxy2 = ((oxy/32.0_rk)/dens)*1000.0_rk ! Oxygen concentration in umol kg-1
+
+        ! Detritus dynamic sinking speed
+        if (self%use_dsnk) then
+            ddsnk_dt = 0.0_rk
+            ddsnk_dt = ddsnk_dt &
+                + 0.9_rk*dia_mort*dia*self%sr_dia2det & ! Diatom mortality
+                + 0.9_rk*fla_mort*fla*self%sr_fla2det & ! Flagellate mortality
+                + mic_mort*mic*self%sr_mic2det & ! Microzooplankton mortality
+                + (1.0_rk - self%beta)*mic_growth_fla*mic*self%sr_fla2det & ! Unassimilated flagellates from microzoo predation
+                + (1.0_rk - self%beta)*mic_growth_det*mic*dsnk/det & ! Unassimilated detritus from microzoo predation
+                + mes_mort*mes*self%sr_mes2det & ! Mesozooplankton mortality
+                + (1.0_rk - self%beta)*mes_growth_dia*mes*self%sr_dia2det & ! Unassimilated diatoms from mesozoo predation
+                + (1.0_rk - self%beta)*mes_growth_mic*mes*self%sr_mic2det & ! Unassimilated microzoo from mesozoo predation
+                + (1.0_rk - self%beta)*mes_growth_det*mes*dsnk/det & ! Unassimilated detritus from mesozoo predation
+                - self%cc4*dsnk & ! Detritus reminiralization
+                - mic_growth_det*mic*dsnk/det & ! Microzooplankton detritus predation
+                - mes_growth_det*mes*dsnk/det ! Mesozooplankton detritus predation
+        end if
 
         ! Calculate derivatives
 
@@ -570,6 +604,9 @@ contains
         _ADD_SOURCE_(self%id_fla, dfla_dt)
         _ADD_SOURCE_(self%id_mes, dmes_dt)
         _ADD_SOURCE_(self%id_mic, dmic_dt)
+        if (self%use_dsnk) then
+            _ADD_SOURCE_(self%id_dsnk, ddsnk_dt)
+        end if
 
         ! Update diagnostic variables
         _SET_DIAGNOSTIC_(self%id_gpp, gpp)
@@ -578,6 +615,9 @@ contains
         _SET_DIAGNOSTIC_(self%id_nsp, nsp)
         _SET_DIAGNOSTIC_(self%id_chla, chla)
         _SET_DIAGNOSTIC_(self%id_oxy2, oxy2)
+        if (self%use_dsnk) then
+            _SET_DIAGNOSTIC_(self%id_snkspd, dsnk/det)
+        end if
 
         _LOOP_END_
 
