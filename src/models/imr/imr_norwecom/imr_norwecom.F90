@@ -50,6 +50,8 @@ module imr_norwecom
         type(type_diagnostic_variable_id) :: id_gsp !! Gross secondary production (mgC m-3 s-1)
         type(type_diagnostic_variable_id) :: id_nsp !! Net secondary production (mgC m-3 s-1)
         type(type_diagnostic_variable_id) :: id_oxy2 !! Oxygen concentration (umol kg-1)
+
+        ! Define surface diagnostic variables
         type(type_surface_diagnostic_variable_id) :: id_doxy
         
         ! Define model parameters
