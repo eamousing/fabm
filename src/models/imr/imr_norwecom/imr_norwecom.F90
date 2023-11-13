@@ -227,7 +227,7 @@ contains
         call self%register_state_variable(self%id_fla, "fla", "mgN m-3", "Flagellates concentration", minimum = 1e-4_rk, initial_value = 0.1_rk)
         call self%register_state_variable(self%id_mic, "mic", "mgN m-3", "Microzooplankton concentration", minimum = 1e-4_rk, initial_value = 0.1_rk)
         call self%register_state_variable(self%id_mes, "mes", "mgN m-3", "Mesozooplankton concentration", minimum = 1e-4_rk, initial_value = 0.1_rk)
-        call self%register_state_variable(self%id_dsnk, "dsnk", "", "Detritus dynamic sinking speed tracer", minimum = 0.0_rk, initial_value = 0.00003_rk)
+        call self%register_state_variable(self%id_dsnk, "dsnk", "", "Detritus dynamic sinking speed tracer", minimum = 0.0_rk, initial_value = 0.000003_rk)
         
         ! Initialize bottom biogeochemical variables
         call self%register_state_variable(self%id_botdet, "botdet", "mgN m-2", "Bottom nitrogen detritus concentration", minimum = 1e-4_rk, initial_value = 0.1_rk)
@@ -462,18 +462,18 @@ contains
         if (self%use_dsnk) then
             ddsnk_dt = 0.0_rk
             ddsnk_dt = ddsnk_dt &
-                + 0.9_rk*dia_mort*dia*self%sr_dia2det & ! Diatom mortality
-                + 0.9_rk*fla_mort*fla*self%sr_fla2det & ! Flagellate mortality
-                + mic_mort*mic*self%sr_mic2det & ! Microzooplankton mortality
-                + (1.0_rk - self%beta)*mic_growth_fla*mic*self%sr_fla2det & ! Unassimilated flagellates from microzoo predation
-                + (1.0_rk - self%beta)*mic_growth_det*mic*dsnk/det & ! Unassimilated detritus from microzoo predation
+                + 0.9_rk*dia_mort*dia*self%sr_dia2det & ! Diatoms mortality (90% is converted to nitrogen detritus)
+                + 0.9_rk*fla_mort*fla*self%sr_fla2det & ! Flagellates mortality (90% is converted to nitrogen detritus)
                 + mes_mort*mes*self%sr_mes2det & ! Mesozooplankton mortality
-                + (1.0_rk - self%beta)*mes_growth_dia*mes*self%sr_dia2det & ! Unassimilated diatoms from mesozoo predation
-                + (1.0_rk - self%beta)*mes_growth_mic*mes*self%sr_mic2det & ! Unassimilated microzoo from mesozoo predation
-                + (1.0_rk - self%beta)*mes_growth_det*mes*dsnk/det & ! Unassimilated detritus from mesozoo predation
-                - self%cc4*dsnk & ! Detritus reminiralization
-                - mic_growth_det*mic*dsnk/det & ! Microzooplankton detritus predation
-                - mes_growth_det*mes*dsnk/det ! Mesozooplankton detritus predation
+                + mic_mort*mic*self%sr_mic2det & ! Microzooplankton mortality
+                + (1.0_rk - self%beta)*mes_growth_dia*mes*self%sr_dia2det & ! Mesozooplankton assimilation loss from diatoms
+                + (1.0_rk - self%beta)*mes_growth_mic*mes*self%sr_mic2det & ! Mesozooplankton assimilation loss from microzooplankton
+                + (1.0_rk - self%beta)*mes_growth_det*mes*dsnk/det & ! Mesozooplankton assimilation loss from detritus
+                + (1.0_rk - self%beta)*mic_growth_fla*mic*self%sr_fla2det & ! Microzooplankton assimilation loss from flagellates
+                + (1.0_rk - self%beta)*mic_growth_det*mic*dsnk/det & ! Microzooplankton assimilation loss from detritus
+                - mes_growth_det*mes*dsnk/det & ! Mesozooplankton predation on detritus
+                - mic_growth_det*mic*dsnk/det & ! Microzooplankton predation on detritus
+                - self%cc4*dsnk ! Remineralization
         end if
 
         ! Calculate derivatives
@@ -616,7 +616,7 @@ contains
         _SET_DIAGNOSTIC_(self%id_chla, chla)
         _SET_DIAGNOSTIC_(self%id_oxy2, oxy2)
         if (self%use_dsnk) then
-            _SET_DIAGNOSTIC_(self%id_snkspd, dsnk/det)
+            _SET_DIAGNOSTIC_(self%id_snkspd, (dsnk/det)*86400.0_rk)
         end if
 
         _LOOP_END_
@@ -653,7 +653,7 @@ contains
         ! Local variables
         real(rk) :: bstress, detspd, sisspd
         real(rk) :: botdet, botdetp, botsis, burdet, burdetp, bursis
-        real(rk) :: det, detp, sis
+        real(rk) :: det, detp, sis, dsnk
         real(rk) :: ddet_dt, ddetp_dt, dsis_dt
         real(rk) :: dbotdet_dt, dbotdetp_dt, dbotsis_dt
         real(rk) :: dburdet_dt, dburdetp_dt, dbursis_dt
@@ -671,11 +671,19 @@ contains
         _GET_(self%id_det, det)
         _GET_(self%id_detp, detp)
         _GET_(self%id_sis, sis)
+        if (self%use_dsnk) then
+            _GET_(self%id_dsnk, dsnk)
+        end if
 
         ! Set sedimentation/resuspension rate according to bottom stress
         if (bstress < self%tau1) then ! Sedimentation
-            detspd = self%sr_det
-            sisspd = self%sr_sis
+            if (self%use_dsnk) then
+                detspd = dsnk/det
+                sisspd = self%sr_sis
+            else
+                detspd = self%sr_det
+                sisspd = self%sr_sis
+            end if
         else
             detspd = 0.0_rk
             sisspd = 0.0_rk
@@ -696,6 +704,9 @@ contains
         _ADD_BOTTOM_FLUX_(self%id_det, -ddet_dt)
         _ADD_BOTTOM_FLUX_(self%id_detp, -ddetp_dt)
         _ADD_BOTTOM_FLUX_(self%id_sis, -dsis_dt)
+        if (self%use_dsnk) then
+            _ADD_BOTTOM_FLUX_(self%id_dsnk, -detspd*det*dsnk/det)
+        end if
         _ADD_BOTTOM_SOURCE_(self%id_botdet, dbotdet_dt)
         _ADD_BOTTOM_SOURCE_(self%id_botdetp, dbotdetp_dt)
         _ADD_BOTTOM_SOURCE_(self%id_botsis, dbotsis_dt)
@@ -712,8 +723,8 @@ contains
         _DECLARE_ARGUMENTS_GET_VERTICAL_MOVEMENT_
 
         ! Local variables
-        real(rk) :: sil, dia, fla
-        real(rk) :: vdia, vfla
+        real(rk) :: sil, dia, fla, det, dsnk
+        real(rk) :: vdia, vfla, vdet
 
         _LOOP_BEGIN_
 
@@ -721,6 +732,10 @@ contains
         _GET_(self%id_sil, sil)
         _GET_(self%id_dia, dia)
         _GET_(self%id_fla, fla)
+        if (self%use_dsnk) then
+            _GET_(self%id_det, det)
+            _GET_(self%id_dsnk, dsnk)
+        end if
 
         ! Adjust diatoms sinking speed according to silicate concentration
         if ((sil / self%cnit) < self%sib) then
@@ -742,9 +757,16 @@ contains
         ! Update sinking speeds
         _SET_VERTICAL_MOVEMENT_(self%id_dia, -vdia)
         _SET_VERTICAL_MOVEMENT_(self%id_fla, -vfla)
-        _SET_VERTICAL_MOVEMENT_(self%id_det, -self%sr_det)
-        _SET_VERTICAL_MOVEMENT_(self%id_detp, -self%sr_det)
         _SET_VERTICAL_MOVEMENT_(self%id_sis, -self%sr_sis)
+        if (self%use_dsnk) then
+            vdet = dsnk/det
+            _SET_VERTICAL_MOVEMENT_(self%id_det, -vdet)
+            _SET_VERTICAL_MOVEMENT_(self%id_detp, -vdet)
+            _SET_VERTICAL_MOVEMENT_(self%id_dsnk, -vdet)
+        else
+            _SET_VERTICAL_MOVEMENT_(self%id_det, -self%sr_det)
+            _SET_VERTICAL_MOVEMENT_(self%id_detp, -self%sr_det)
+        end if
 
         _LOOP_END_
     end subroutine get_vertical_movement
